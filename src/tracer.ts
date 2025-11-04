@@ -79,8 +79,11 @@ export class Tracer {
    * @param func - Function to wrap
    * @returns Wrapped function
    */
-  wrap<T extends AnyFunction>(spanType: SpanType, func: T): T {
-    const wrapped = ((...args: Parameters<T>) => {
+  wrap<TArgs extends unknown[], TReturn>(
+    spanType: SpanType,
+    func: AnyFunction<TArgs, TReturn>
+  ): AnyFunction<TArgs, TReturn> {
+    const wrapped = ((...args: TArgs) => {
       const span = this._tracer.startSpan(func.name);
       const activeContext = trace.setSpan(context.active(), span);
 
@@ -152,7 +155,7 @@ export class Tracer {
           throw error;
         }
       });
-    }) as T;
+    }) as AnyFunction<TArgs, TReturn>;
 
     Object.defineProperty(wrapped, "name", { value: func.name });
     return wrapped;
