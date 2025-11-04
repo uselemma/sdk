@@ -466,4 +466,13 @@ export class Tracer {
   getSpansAsDicts(): ReturnType<MemorySpanExporter["getSpansAsDicts"]> {
     return this._memoryExporter.getSpansAsDicts();
   }
+
+  /**
+   * Get the candidate prompt manager instance.
+   *
+   * @returns The CandidatePromptManager instance used by this tracer
+   */
+  getCandidatePromptManager(): CandidatePromptManager {
+    return this._cpm;
+  }
 }

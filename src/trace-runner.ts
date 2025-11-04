@@ -1,5 +1,5 @@
-import type { Tracer } from './tracer';
-import { CandidatePromptManager } from './candidate-prompt-manager';
+import type { Tracer } from "./tracer";
+import { CandidatePromptManager } from "./candidate-prompt-manager";
 
 export interface TraceData {
   trace_id: string;
@@ -51,10 +51,11 @@ export class TraceRunner {
 
   constructor(
     tracer: Tracer,
-    candidatePrompts?: Record<string, string> | null,
+    candidatePrompts?: Record<string, string> | null
   ) {
     this._tracer = tracer;
-    this._cpm = new CandidatePromptManager();
+    // Use the tracer's CandidatePromptManager to ensure shared context
+    this._cpm = tracer.getCandidatePromptManager();
     this._candidatePrompts = candidatePrompts ?? null;
     this._traceId = undefined;
     this._contextEntered = false;
@@ -72,7 +73,7 @@ export class TraceRunner {
    */
   async run<T>(callback: () => Promise<T> | T): Promise<T> {
     if (this._alreadyRecorded) {
-      throw new Error('Cannot enter context after record() has been called');
+      throw new Error("Cannot enter context after record() has been called");
     }
 
     // Set up candidate prompts context
@@ -100,7 +101,7 @@ export class TraceRunner {
   async record(): Promise<TraceData> {
     if (this._alreadyRecorded) {
       throw new Error(
-        'record() can only be called once per TraceRunner instance',
+        "record() can only be called once per TraceRunner instance"
       );
     }
 
@@ -111,7 +112,7 @@ export class TraceRunner {
 
     if (this._traceId === undefined) {
       throw new Error(
-        'trace_id could not be captured. Ensure spans are created within the context.',
+        "trace_id could not be captured. Ensure spans are created within the context."
       );
     }
 
@@ -122,7 +123,7 @@ export class TraceRunner {
     const allSpans = this._tracer.getSpansAsDicts();
     // Filter spans to only include those matching the trace_id
     const traceSpans = allSpans.filter(
-      (span) => span.trace_id === this._traceId,
+      (span) => span.trace_id === this._traceId
     );
 
     this._alreadyRecorded = true;
@@ -133,4 +134,3 @@ export class TraceRunner {
     };
   }
 }
-
