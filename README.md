@@ -34,7 +34,7 @@ await traceRunner.run(async () => {
 
   // ... use renderedPrompt ...
 
-  tracer.addLlmOutput("LLM response", "gpt-4", {
+  tracer.addLLMOutput("LLM response", "gpt-4", {
     prompt_tokens: 100,
     completion_tokens: 50,
     total_tokens: 150,
@@ -69,14 +69,14 @@ const renderedPrompt = await tracer.prompt(
   { text: "Hello" }
 );
 // ... use renderedPrompt ...
-tracer.addLlmOutput(result.content);
+tracer.addLLMOutput(result.content);
 
 // Method 2: Using startPrompt() (returns context object)
 const promptCtx = tracer.startPrompt("translation", "Translate: {{ text }}", {
   text: "Hello",
 });
 // ... use promptCtx.renderedPrompt ...
-tracer.addLlmOutput(result.content);
+tracer.addLLMOutput(result.content);
 promptCtx.end(); // Manually end span
 ```
 
@@ -85,6 +85,7 @@ promptCtx.end(); // Manually end span
 ### SpanType
 
 Enum for specifying span types:
+
 - `SpanType.AGENT` - For agent operations
 - `SpanType.NODE` - For node operations
 - `SpanType.TOOL` - For tool operations
@@ -94,7 +95,7 @@ Enum for specifying span types:
 - `wrap<T>(spanType: SpanType, func: T): T` - Wrap a function for tracing
 - `prompt(promptName: string, promptTemplate: string, inputVars: Record<string, unknown>): Promise<string>` - Create a prompt span and render template
 - `startPrompt(...)`: Start a prompt span and return context object
-- `addLlmOutput(output: string, model?: string, usage?: {...}): void` - Add LLM output to current prompt span
+- `addLLMOutput(output: string, model?: string, usage?: {...}): void` - Add LLM output to current prompt span
 - `addMetadata(key: string, value: unknown): void` - Add metadata to current span
 - `addEvent(eventName: string, attributes?: Record<string, unknown>): void` - Add event to current span
 - `getTraceId(): string | undefined` - Get current trace ID
