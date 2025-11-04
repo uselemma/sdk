@@ -3,7 +3,7 @@ import { Resource } from "@opentelemetry/resources";
 import type { SpanExporter } from "@opentelemetry/sdk-trace-base";
 import {
   BasicTracerProvider,
-  BatchSpanProcessor,
+  SimpleSpanProcessor,
   ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -32,6 +32,7 @@ export class Tracer {
   private readonly _tracer: ReturnType<typeof trace.getTracer>;
   private readonly _cpm: CandidatePromptManager;
   private readonly _memoryExporter: MemorySpanExporter;
+  private readonly _provider: BasicTracerProvider;
   private readonly _currentPromptSpan: AsyncLocalStorage<{ span: Span } | null>;
   private readonly _llmStartTime: AsyncLocalStorage<{ time: number } | null>;
   private readonly _traceId: AsyncLocalStorage<{ traceId: string } | null>;
@@ -51,17 +52,21 @@ export class Tracer {
     this._memoryExporter = new MemorySpanExporter();
 
     // Prepare span processors
-    const spanProcessors = [new BatchSpanProcessor(this._memoryExporter)];
+    const spanProcessors: SimpleSpanProcessor[] = [
+      new SimpleSpanProcessor(this._memoryExporter),
+    ];
     if (exporter) {
-      spanProcessors.push(new BatchSpanProcessor(exporter));
+      spanProcessors.push(new SimpleSpanProcessor(exporter));
     }
 
-    const provider = new BasicTracerProvider({
+    // Create provider with span processors
+    this._provider = new BasicTracerProvider({
       resource,
       spanProcessors,
     });
 
-    trace.setGlobalTracerProvider(provider);
+    // Register provider globally
+    this._provider.register();
 
     this._tracer = trace.getTracer(serviceName);
     this._cpm = candidatePromptManager ?? new CandidatePromptManager();
@@ -441,10 +446,7 @@ export class Tracer {
    * Force flush all pending spans.
    */
   async forceFlush(): Promise<void> {
-    const provider = trace.getTracerProvider();
-    if ("forceFlush" in provider) {
-      await (provider as { forceFlush: () => Promise<void> }).forceFlush();
-    }
+    await this._provider.forceFlush();
   }
 
   /**
