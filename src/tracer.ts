@@ -12,7 +12,9 @@ import nunjucks from "nunjucks";
 import { CandidatePromptManager } from "./candidate-prompt-manager";
 import { MemorySpanExporter } from "./exporter";
 
-type AnyFunction = (...args: unknown[]) => unknown;
+type AnyFunction<TArgs extends unknown[] = unknown[], TReturn = unknown> = (
+  ...args: TArgs
+) => TReturn;
 
 /**
  * Span type for tracing different kinds of operations.
