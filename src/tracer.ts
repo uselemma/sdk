@@ -1,10 +1,10 @@
 import { context, type Span, SpanStatusCode, trace } from "@opentelemetry/api";
+import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import { Resource } from "@opentelemetry/resources";
 import type { SpanExporter } from "@opentelemetry/sdk-trace-base";
 import {
   BasicTracerProvider,
   SimpleSpanProcessor,
-  ReadableSpan,
 } from "@opentelemetry/sdk-trace-base";
 import { AsyncLocalStorage } from "node:async_hooks";
 import nunjucks from "nunjucks";
@@ -35,7 +35,6 @@ export class Tracer {
   private readonly _provider: BasicTracerProvider;
   private readonly _currentPromptSpan: AsyncLocalStorage<{ span: Span } | null>;
   private readonly _llmStartTime: AsyncLocalStorage<{ time: number } | null>;
-  private readonly _traceId: AsyncLocalStorage<{ traceId: string } | null>;
 
   constructor(
     serviceName: string,
@@ -48,7 +47,7 @@ export class Tracer {
       })
     );
 
-    // Create memory exporter to collect spans (always used)
+    // Always create a memory exporter for TraceRunner to use
     this._memoryExporter = new MemorySpanExporter();
 
     // Prepare span processors
@@ -58,6 +57,11 @@ export class Tracer {
     if (exporter) {
       spanProcessors.push(new SimpleSpanProcessor(exporter));
     }
+
+    // Set up context manager for async context propagation
+    const contextManager = new AsyncLocalStorageContextManager();
+    contextManager.enable();
+    context.setGlobalContextManager(contextManager);
 
     // Create provider with span processors
     this._provider = new BasicTracerProvider({
@@ -74,7 +78,6 @@ export class Tracer {
     // Context-local state for prompt spans and timing
     this._currentPromptSpan = new AsyncLocalStorage<{ span: Span } | null>();
     this._llmStartTime = new AsyncLocalStorage<{ time: number } | null>();
-    this._traceId = new AsyncLocalStorage<{ traceId: string } | null>();
   }
 
   /**
@@ -89,19 +92,10 @@ export class Tracer {
     func: AnyFunction<TArgs, TReturn>
   ): AnyFunction<TArgs, TReturn> {
     const wrapped = ((...args: TArgs) => {
-      const span = this._tracer.startSpan(func.name);
-      const activeContext = trace.setSpan(context.active(), span);
-
-      // Capture trace_id from span context
-      const spanContext = span.spanContext();
-      if (spanContext.traceFlags !== undefined) {
-        const traceId = this._formatTraceId(spanContext.traceId);
-        // Store trace ID in async context for later retrieval
-        const currentStore = this._traceId.getStore();
-        if (!currentStore) {
-          this._traceId.enterWith({ traceId });
-        }
-      }
+      // Capture the current context so the span inherits the parent's trace_id
+      const currentContext = context.active();
+      const span = this._tracer.startSpan(func.name, undefined, currentContext);
+      const activeContext = trace.setSpan(currentContext, span);
 
       span.setAttribute("span.type", spanType);
       span.setAttribute("function.name", func.name);
@@ -188,19 +182,9 @@ export class Tracer {
     promptTemplate: string,
     inputVars: Record<string, unknown>
   ): Promise<string> {
-    const span = this._tracer.startSpan(promptName);
-    const activeContext = trace.setSpan(context.active(), span);
-
-    // Capture trace_id from span context and store in async context
-    const spanContext = span.spanContext();
-    if (spanContext.traceFlags !== undefined) {
-      const traceId = this._formatTraceId(spanContext.traceId);
-      // Store trace ID in async context for later retrieval
-      const currentStore = this._traceId.getStore();
-      if (!currentStore) {
-        this._traceId.enterWith({ traceId });
-      }
-    }
+    const currentContext = context.active();
+    const span = this._tracer.startSpan(promptName, undefined, currentContext);
+    const activeContext = trace.setSpan(currentContext, span);
 
     span.setAttribute("span.type", "prompt");
     span.setAttribute("prompt.name", promptName);
@@ -259,19 +243,9 @@ export class Tracer {
     span: Span;
     end: () => void;
   } {
-    const span = this._tracer.startSpan(promptName);
-    const activeContext = trace.setSpan(context.active(), span);
-
-    // Capture trace_id from span context and store in async context
-    const spanContext = span.spanContext();
-    if (spanContext.traceFlags !== undefined) {
-      const traceId = this._formatTraceId(spanContext.traceId);
-      // Store trace ID in async context for later retrieval
-      const currentStore = this._traceId.getStore();
-      if (!currentStore) {
-        this._traceId.enterWith({ traceId });
-      }
-    }
+    const currentContext = context.active();
+    const span = this._tracer.startSpan(promptName, undefined, currentContext);
+    const activeContext = trace.setSpan(currentContext, span);
 
     span.setAttribute("span.type", "prompt");
     span.setAttribute("prompt.name", promptName);
@@ -425,13 +399,16 @@ export class Tracer {
   }
 
   /**
-   * Get the trace_id from the current context.
+   * Get the trace_id from the current active span.
    *
    * @returns trace_id as a 32-character hexadecimal string, or undefined if not available
    */
   getTraceId(): string | undefined {
-    const store = this._traceId.getStore();
-    return store?.traceId;
+    const span = this.getCurrentSpan();
+    if (span) {
+      return this._formatTraceId(span.spanContext().traceId);
+    }
+    return undefined;
   }
 
   /**
@@ -450,29 +427,29 @@ export class Tracer {
   }
 
   /**
-   * Get all collected spans from memory.
-   *
-   * @returns List of ReadableSpan objects for all spans collected so far
-   */
-  getSpans(): ReadableSpan[] {
-    return this._memoryExporter.getSpans();
-  }
-
-  /**
-   * Get all collected spans as dictionaries.
-   *
-   * @returns List of span dictionaries with all span data
-   */
-  getSpansAsDicts(): ReturnType<MemorySpanExporter["getSpansAsDicts"]> {
-    return this._memoryExporter.getSpansAsDicts();
-  }
-
-  /**
    * Get the candidate prompt manager instance.
    *
    * @returns The CandidatePromptManager instance used by this tracer
    */
   getCandidatePromptManager(): CandidatePromptManager {
     return this._cpm;
+  }
+
+  /**
+   * Get the memory exporter instance.
+   * This is used internally by TraceRunner to access collected spans.
+   *
+   * @returns The MemorySpanExporter instance
+   */
+  getMemoryExporter(): MemorySpanExporter {
+    return this._memoryExporter;
+  }
+
+  /**
+   * Clear all spans from memory exporter.
+   * Useful for cleaning up between test runs.
+   */
+  clearSpans(): void {
+    this._memoryExporter.clear();
   }
 }

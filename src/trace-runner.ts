@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { Tracer } from "./tracer";
 import { CandidatePromptManager } from "./candidate-prompt-manager";
 
@@ -10,8 +11,8 @@ export interface TraceData {
     parent_span_id: string | null;
     name: string;
     kind: string;
-    start_time_ns: bigint;
-    end_time_ns: bigint | null;
+    start_time_ns: string;
+    end_time_ns: string | null;
     duration_ms: number | null;
     attributes: Record<string, unknown>;
     status: {
@@ -20,7 +21,7 @@ export interface TraceData {
     } | null;
     events: Array<{
       name: string;
-      timestamp_ns: bigint;
+      timestamp_ns: string;
       attributes: Record<string, unknown>;
     }>;
     resource: Record<string, unknown>;
@@ -77,19 +78,26 @@ export class TraceRunner {
     }
 
     // Set up candidate prompts context
-    return this._cpm.run(this._candidatePrompts, async () => {
+    const result = await this._cpm.run(this._candidatePrompts, async () => {
       this._contextEntered = true;
 
       try {
-        const result = await callback();
-        // Capture trace_id from tracer after execution completes
-        this._traceId = this._tracer.getTraceId();
-        return result;
+        return await callback();
       } finally {
         // Reset state when context exits
         this._contextEntered = false;
       }
     });
+
+    return result;
+  }
+
+  /**
+   * Set the trace_id manually. This can be called after run() to explicitly set the trace.
+   * Normally not needed as record() will auto-detect from spans.
+   */
+  setTraceId(traceId: string): void {
+    this._traceId = traceId;
   }
 
   /**
@@ -105,9 +113,14 @@ export class TraceRunner {
       );
     }
 
-    // Capture trace_id from tracer if we haven't captured it yet
+    // Capture trace_id if we haven't yet
     if (this._traceId === undefined) {
-      this._traceId = this._tracer.getTraceId();
+      // Try to get from any span in the exporter
+      const allSpans = this._tracer.getMemoryExporter().getSpansAsDicts();
+      if (allSpans.length > 0) {
+        // Get the most recent span's trace_id
+        this._traceId = allSpans[allSpans.length - 1].trace_id;
+      }
     }
 
     if (this._traceId === undefined) {
@@ -120,7 +133,8 @@ export class TraceRunner {
     await this._tracer.forceFlush();
 
     // Get all spans for this trace
-    const allSpans = this._tracer.getSpansAsDicts();
+    const allSpans = this._tracer.getMemoryExporter().getSpansAsDicts();
+
     // Filter spans to only include those matching the trace_id
     const traceSpans = allSpans.filter(
       (span) => span.trace_id === this._traceId

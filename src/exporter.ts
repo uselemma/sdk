@@ -8,8 +8,8 @@ export interface SpanDict {
   parent_span_id: string | null;
   name: string;
   kind: string;
-  start_time_ns: bigint;
-  end_time_ns: bigint | null;
+  start_time_ns: string;
+  end_time_ns: string | null;
   duration_ms: number | null;
   attributes: Record<string, unknown>;
   status: {
@@ -18,7 +18,7 @@ export interface SpanDict {
   } | null;
   events: Array<{
     name: string;
-    timestamp_ns: bigint;
+    timestamp_ns: string;
     attributes: Record<string, unknown>;
   }>;
   resource: Record<string, unknown>;
@@ -68,10 +68,15 @@ export class MemorySpanExporter implements SpanExporter {
       parent_span_id: parentSpanId,
       name: span.name,
       kind: span.kind.toString(),
-      start_time_ns:
-        BigInt(span.startTime[0]) * 1_000_000_000n + BigInt(span.startTime[1]),
+      start_time_ns: (
+        BigInt(span.startTime[0]) * 1_000_000_000n +
+        BigInt(span.startTime[1])
+      ).toString(),
       end_time_ns: span.endTime
-        ? BigInt(span.endTime[0]) * 1_000_000_000n + BigInt(span.endTime[1])
+        ? (
+            BigInt(span.endTime[0]) * 1_000_000_000n +
+            BigInt(span.endTime[1])
+          ).toString()
         : null,
       duration_ms: span.endTime
         ? (span.endTime[0] - span.startTime[0]) * 1000 +
@@ -86,8 +91,10 @@ export class MemorySpanExporter implements SpanExporter {
         : null,
       events: (span.events || []).map((event) => ({
         name: event.name,
-        timestamp_ns:
-          BigInt(event.time[0]) * 1_000_000_000n + BigInt(event.time[1]),
+        timestamp_ns: (
+          BigInt(event.time[0]) * 1_000_000_000n +
+          BigInt(event.time[1])
+        ).toString(),
         attributes: event.attributes ? { ...event.attributes } : {},
       })),
       resource: span.resource?.attributes

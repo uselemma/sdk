@@ -30,8 +30,8 @@ async function main() {
   };
   const traceRunner = new TraceRunner(tracer, candidatePrompts);
 
-  // Run your traced code within the TraceRunner context
-  await traceRunner.run(async () => {
+  // Create a root operation that will establish the trace context
+  async function runWorkflow() {
     // Wrap functions with tracing
     const tracedFetchUserData = tracer.wrap(SpanType.AGENT, fetchUserData);
     const tracedProcessData = tracer.wrap(SpanType.NODE, processData);
@@ -79,6 +79,14 @@ async function main() {
     });
 
     promptContext.end();
+  }
+
+  // Wrap the root workflow to establish trace context
+  const tracedWorkflow = tracer.wrap(SpanType.AGENT, runWorkflow);
+
+  // Run your traced code within the TraceRunner context
+  await traceRunner.run(async () => {
+    await tracedWorkflow();
   });
 
   // Record the trace data - this flushes spans and collects them
