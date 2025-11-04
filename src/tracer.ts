@@ -15,6 +15,15 @@ import { MemorySpanExporter } from "./exporter";
 type AnyFunction = (...args: unknown[]) => unknown;
 
 /**
+ * Span type for tracing different kinds of operations.
+ */
+export enum SpanType {
+  AGENT = "agent",
+  NODE = "node",
+  TOOL = "tool",
+}
+
+/**
  * OpenTelemetry-based tracer that mimics agentbridge API.
  */
 export class Tracer {
@@ -64,11 +73,11 @@ export class Tracer {
   /**
    * Wraps a function to trace it as a span.
    *
+   * @param spanType - Type of span (SpanType.AGENT, SpanType.NODE, or SpanType.TOOL)
    * @param func - Function to wrap
-   * @param spanType - Type of span (e.g., "agent", "tool", etc.)
    * @returns Wrapped function
    */
-  wrap<T extends AnyFunction>(func: T, spanType: string): T {
+  wrap<T extends AnyFunction>(spanType: SpanType, func: T): T {
     const wrapped = ((...args: Parameters<T>) => {
       const span = this._tracer.startSpan(func.name);
       const activeContext = trace.setSpan(context.active(), span);

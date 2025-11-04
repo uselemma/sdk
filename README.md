@@ -13,7 +13,7 @@ npm install @uselemma/tracing
 ### Basic Setup
 
 ```typescript
-import { Tracer, TraceRunner } from "@uselemma/tracing";
+import { Tracer, TraceRunner, SpanType } from "@uselemma/tracing";
 
 // Create a tracer
 const tracer = new Tracer("my-service");
@@ -51,7 +51,7 @@ console.log(traceData.spans);
 
 ```typescript
 // Wrap a function for tracing
-const tracedFunction = tracer.wrap(myFunction, "tool");
+const tracedFunction = tracer.wrap(SpanType.TOOL, myFunction);
 
 // Or use manually
 const span = tracer.getCurrentSpan();
@@ -80,18 +80,18 @@ tracer.addLlmOutput(result.content);
 promptCtx.end(); // Manually end span
 ```
 
-## Differences from Python Version
-
-1. **Async Context**: Uses `AsyncLocalStorage` instead of Python's `contextvars`
-2. **Template Engine**: Uses `nunjucks` instead of Jinja2
-3. **Decorators**: The `observe()` decorator pattern is replaced with `wrap()` method
-4. **Context Managers**: Python's `with` statements are replaced with `run()` callbacks
-
 ## API
+
+### SpanType
+
+Enum for specifying span types:
+- `SpanType.AGENT` - For agent operations
+- `SpanType.NODE` - For node operations
+- `SpanType.TOOL` - For tool operations
 
 ### Tracer
 
-- `wrap<T>(func: T, spanType: string): T` - Wrap a function for tracing
+- `wrap<T>(spanType: SpanType, func: T): T` - Wrap a function for tracing
 - `prompt(promptName: string, promptTemplate: string, inputVars: Record<string, unknown>): Promise<string>` - Create a prompt span and render template
 - `startPrompt(...)`: Start a prompt span and return context object
 - `addLlmOutput(output: string, model?: string, usage?: {...}): void` - Add LLM output to current prompt span
