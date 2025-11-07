@@ -43,6 +43,13 @@ export class MemorySpanExporter implements SpanExporter {
     return this._spans.map((span) => this._spanToDict(span));
   }
 
+  getSpansByTraceId(traceId: string): SpanDict[] {
+    const formattedTraceId = this._formatTraceId(traceId);
+    return this._spans
+      .map((span) => this._spanToDict(span))
+      .filter((span) => span.trace_id === formattedTraceId);
+  }
+
   private _formatTraceId(traceId: string): string {
     // Ensure trace ID is 32-character hex string
     return traceId.padStart(32, "0").slice(0, 32);
@@ -57,8 +64,8 @@ export class MemorySpanExporter implements SpanExporter {
     const spanCtx = span.spanContext();
     const traceId = this._formatTraceId(spanCtx.traceId);
     const spanId = this._formatSpanId(spanCtx.spanId);
-    const parentSpanId = span.parentSpanId
-      ? this._formatSpanId(span.parentSpanId)
+    const parentSpanId = span.parentSpanContext
+      ? this._formatSpanId(span.parentSpanContext.spanId)
       : null;
 
     return {
