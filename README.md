@@ -1,6 +1,6 @@
-# Tracing Module
+# @uselemma/tracing
 
-OpenTelemetry-based tracing module for Lemma.
+Utilities for OpenTelemetry-based tracing and prompt management.
 
 ## Installation
 
@@ -8,113 +8,119 @@ OpenTelemetry-based tracing module for Lemma.
 npm install @uselemma/tracing
 ```
 
-## Usage
-
-### Basic Setup
-
-```typescript
-import { Tracer, TraceRunner, SpanType } from "@uselemma/tracing";
-
-// Create a tracer
-const tracer = new Tracer("my-service");
-
-// Use TraceRunner for managing traces
-const traceRunner = new TraceRunner(tracer, {
-  "prompt-name": "override template here",
-});
-
-// Run code within tracing context
-await traceRunner.run(async () => {
-  // Your code here
-  const renderedPrompt = await tracer.prompt(
-    "prompt-name",
-    "Hello {{ name }}!",
-    { name: "World" }
-  );
-
-  // ... use renderedPrompt ...
-
-  tracer.addLLMOutput("LLM response", "gpt-4", {
-    prompt_tokens: 100,
-    completion_tokens: 50,
-    total_tokens: 150,
-  });
-});
-
-// Get trace data
-const traceData = await traceRunner.record();
-console.log(traceData.trace_id);
-console.log(traceData.spans);
-```
-
-### Function Tracing
-
-```typescript
-// Wrap a function for tracing
-const tracedFunction = tracer.wrap(SpanType.TOOL, myFunction);
-
-// Or use manually
-const span = tracer.getCurrentSpan();
-tracer.addMetadata("key", "value");
-tracer.addEvent("event-name", { data: "value" });
-```
-
-### Prompt Tracing
-
-```typescript
-// Method 1: Using prompt() (returns rendered prompt)
-const renderedPrompt = await tracer.prompt(
-  "translation",
-  "Translate: {{ text }}",
-  { text: "Hello" }
-);
-// ... use renderedPrompt ...
-tracer.addLLMOutput(result.content);
-
-// Method 2: Using startPrompt() (returns context object)
-const promptCtx = tracer.startPrompt("translation", "Translate: {{ text }}", {
-  text: "Hello",
-});
-// ... use promptCtx.renderedPrompt ...
-tracer.addLLMOutput(result.content);
-promptCtx.end(); // Manually end span
-```
-
-## API
-
-### SpanType
-
-Enum for specifying span types:
-
-- `SpanType.AGENT` - For agent operations
-- `SpanType.NODE` - For node operations
-- `SpanType.TOOL` - For tool operations
-
-### Tracer
-
-- `wrap<T>(spanType: SpanType, func: T): T` - Wrap a function for tracing
-- `prompt(promptName: string, promptTemplate: string, inputVars: Record<string, unknown>): Promise<string>` - Create a prompt span and render template
-- `startPrompt(...)`: Start a prompt span and return context object
-- `addLLMOutput(output: string, model?: string, usage?: {...}): void` - Add LLM output to current prompt span
-- `addMetadata(key: string, value: unknown): void` - Add metadata to current span
-- `addEvent(eventName: string, attributes?: Record<string, unknown>): void` - Add event to current span
-- `getTraceId(): string | undefined` - Get current trace ID
-- `forceFlush(): Promise<void>` - Force flush all pending spans
-- `getSpans(): ReadableSpan[]` - Get all collected spans
-- `getSpansAsDicts(): SpanDict[]` - Get all collected spans as dictionaries
-
-### TraceRunner
-
-- `run<T>(callback: () => Promise<T> | T): Promise<T>` - Run callback within tracing context
-- `record(): Promise<TraceData>` - Export spans and return trace data
-
-### CandidatePromptManager
-
-- `run<T>(candidatePrompts: Record<string, string> | null, callback: () => Promise<T> | T): Promise<T>` - Run callback with candidate prompts
-- `getEffectiveTemplate(promptName: string, defaultTemplate: string): [string, boolean]` - Get effective template
+## Components
 
 ### MemorySpanExporter
 
-- `getSpans(): ReadableSpan[]` - Get all stored spans
-- `getSpansAsDicts(): SpanDict[]` - Get all stored spans as dictionaries
-- `clear(): void` - Clear stored spans
+A custom OpenTelemetry span exporter that stores spans in memory for programmatic access. Useful for testing, debugging, or capturing trace data for custom processing.
+
+#### Usage
+
+```typescript
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { MemorySpanExporter } from "@uselemma/tracing";
+
+// Create and configure the exporter
+const memoryExporter = new MemorySpanExporter();
+
+const sdk = new NodeSDK({
+  spanProcessors: [new SimpleSpanProcessor(memoryExporter)],
+});
+
+sdk.start();
+
+// Later, retrieve spans
+const allSpans = memoryExporter.getSpans();
+const spansAsDicts = memoryExporter.getSpansAsDicts();
+const traceSpans = memoryExporter.getSpansByTraceId("your-trace-id");
+
+// Clear memory when needed
+memoryExporter.clear();
+```
+
+#### Methods
+
+- **`getSpans(): ReadableSpan[]`** - Get all stored spans as OpenTelemetry ReadableSpan objects
+- **`getSpansAsDicts(): SpanDict[]`** - Get all stored spans as formatted dictionaries
+- **`getSpansByTraceId(traceId: string): SpanDict[]`** - Get all spans for a specific trace ID
+- **`clear(): void`** - Clear all stored spans from memory
+- **`export(spans: ReadableSpan[]): Promise<{ code: ExportResultCode }>`** - Export spans (called automatically by OpenTelemetry)
+- **`shutdown(): Promise<void>`** - Shutdown the exporter
+- **`forceFlush(): Promise<void>`** - Force flush pending spans
+
+### CandidatePromptManager
+
+Manages prompt template overrides using AsyncLocalStorage for context-local state. Useful for A/B testing or evaluating different prompt variations.
+
+#### Usage
+
+```typescript
+import { CandidatePromptManager } from "@uselemma/tracing";
+
+const promptManager = new CandidatePromptManager();
+
+// Run code with prompt overrides
+await promptManager.run(
+  {
+    greeting: "Hello {{ name }}, welcome!",
+    farewell: "Goodbye {{ name }}!",
+  },
+  async () => {
+    // Within this context, candidate prompts will be used
+    const [template, wasOverridden] = promptManager.getEffectiveTemplate(
+      "greeting",
+      "Hi {{ name }}" // default template
+    );
+
+    console.log(template); // "Hello {{ name }}, welcome!"
+    console.log(wasOverridden); // true
+  }
+);
+```
+
+#### Methods
+
+- **`run<T>(candidatePrompts: Record<string, string> | null, callback: () => Promise<T> | T): Promise<T>`**  
+  Run a callback with candidate prompts set in the async context
+- **`getEffectiveTemplate(promptName: string, defaultTemplate: string): [string, boolean]`**  
+  Get the effective template, applying candidate override if present. Returns `[template, wasOverridden]`
+- **`annotateSpan(span: { setAttribute: (key: string, value: unknown) => void }): void`**  
+  Annotate an OpenTelemetry span with candidate prompt metadata
+
+## Example: Dual Processor Setup
+
+Use `MemorySpanExporter` alongside other exporters to both send traces to your backend and capture them locally:
+
+```typescript
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { MemorySpanExporter } from "@uselemma/tracing";
+import { OtherSpanProcessor } from "your-backend";
+
+export const memoryExporter = new MemorySpanExporter();
+
+const sdk = new NodeSDK({
+  spanProcessors: [
+    new OtherSpanProcessor(), // Send to your backend
+    new SimpleSpanProcessor(memoryExporter), // Store in memory for local access
+  ],
+});
+
+sdk.start();
+
+// In your application code
+import { memoryExporter } from "./instrumentation";
+
+function myTracedFunction() {
+  // ... your code ...
+
+  // Access spans programmatically
+  const allSpans = memoryExporter.getSpansAsDicts();
+  const myTrace = memoryExporter.getSpansByTraceId(currentTraceId);
+}
+```
+
+## License
+
+MIT
