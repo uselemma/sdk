@@ -7,7 +7,7 @@ export async function wrapAgent<A extends unknown[], F extends (...args: A) => R
   const runId = uuidv4();
   const span = tracer.startSpan(agentName, {
     attributes: {
-      "lemma.run_id": runId,
+      "lemma.agent.run_id": runId,
     },
   });
 
