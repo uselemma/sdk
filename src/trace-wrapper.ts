@@ -1,7 +1,14 @@
-import { context, trace } from "@opentelemetry/api";
+import { context, trace, Span } from "@opentelemetry/api";
 import { v4 as uuidv4 } from "uuid";
 
-export function wrapAgent<A extends unknown[], F extends (...args: A) => ReturnType<F>>(agentName: string, options: { isExperiment?: boolean, initialState?: any, endOnExit?: boolean }, fn: F) {
+export type TraceContext = {
+  span: Span;
+  runId: string;
+  onFinish: (result: unknown) => void;
+  onError: (error: unknown) => void;
+};
+
+export function wrapAgent<A extends unknown[]>(agentName: string, options: { isExperiment?: boolean, initialState?: any, endOnExit?: boolean }, fn: (traceContext: TraceContext, ...args: A) => any) {
   const wrappedFunction = async function (this: any, ...args: A) {
     const tracer = trace.getTracer("lemma");
 
@@ -18,7 +25,18 @@ export function wrapAgent<A extends unknown[], F extends (...args: A) => ReturnT
 
     try {
       return await context.with(ctx, async () => {
-        const result = await fn.apply(this, args);
+        const onFinish = (result: unknown) => {
+          span.setAttribute("lemma.agent.output", JSON.stringify(result));
+          span.end();
+        };
+
+        const onError = (error: unknown) => {
+          span.recordException(error instanceof Error ? error : new Error(String(error)));
+          span.setStatus({ code: 2 });
+          span.end();
+        };
+
+        const result = await fn.call(this, { span, runId, onFinish, onError }, ...args);
 
         if (options?.endOnExit !== false) {
           span.end();

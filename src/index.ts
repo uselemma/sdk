@@ -1,2 +1,2 @@
 export { CandidatePromptManager } from "./candidate-prompt-manager";
-export { wrapAgent } from "./trace-wrapper";
+export { wrapAgent, type TraceContext } from "./trace-wrapper";
