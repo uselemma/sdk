@@ -4,8 +4,9 @@ import { v4 as uuidv4 } from "uuid";
 export type TraceContext = {
   span: Span;
   runId: string;
-  onFinish: (result: unknown) => void;
+  onComplete: (result: unknown) => void;
   onError: (error: unknown) => void;
+  recordGenerationResults: (results: Record<string, string>) => void;
 };
 
 export function wrapAgent<A extends unknown[]>(agentName: string, options: { isExperiment?: boolean, initialState?: any, endOnExit?: boolean }, fn: (traceContext: TraceContext, ...args: A) => any) {
@@ -25,7 +26,7 @@ export function wrapAgent<A extends unknown[]>(agentName: string, options: { isE
 
     try {
       return await context.with(ctx, async () => {
-        const onFinish = (result: unknown) => {
+        const onComplete = (result: unknown) => {
           span.setAttribute("lemma.agent.output", JSON.stringify(result));
           span.end();
         };
@@ -36,7 +37,11 @@ export function wrapAgent<A extends unknown[]>(agentName: string, options: { isE
           span.end();
         };
 
-        const result = await fn.call(this, { span, runId, onFinish, onError }, ...args);
+        const recordGenerationResults = (results: Record<string, string>) => {
+          span.setAttribute("lemma.agent.generation_results", JSON.stringify(results));
+        };
+
+        const result = await fn.call(this, { span, runId, onComplete, onError, recordGenerationResults }, ...args);
 
         if (options?.endOnExit !== false) {
           span.end();
