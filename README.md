@@ -1,6 +1,6 @@
 # @uselemma/tracing
 
-Utilities for OpenTelemetry-based tracing and prompt management.
+OpenTelemetry-based tracing for AI agents. Capture inputs, outputs, timing, token usage, and errors — then view everything in [Lemma](https://uselemma.ai).
 
 ## Installation
 
@@ -8,118 +8,193 @@ Utilities for OpenTelemetry-based tracing and prompt management.
 npm install @uselemma/tracing
 ```
 
-## Components
+## Quick Start
 
-### MemorySpanExporter
+### 1. Register the tracer provider
 
-A custom OpenTelemetry span exporter that stores spans in memory for programmatic access. Useful for testing, debugging, or capturing trace data for custom processing.
-
-#### Usage
+`registerOTel` sets up a `NodeTracerProvider` that exports spans to Lemma over OTLP/proto. Call it once when your application starts.
 
 ```typescript
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { MemorySpanExporter } from "@uselemma/tracing";
+import { registerOTel } from "@uselemma/tracing";
 
-// Create and configure the exporter
-const memoryExporter = new MemorySpanExporter();
-
-const sdk = new NodeSDK({
-  spanProcessors: [new SimpleSpanProcessor(memoryExporter)],
-});
-
-sdk.start();
-
-// Later, retrieve spans
-const allSpans = memoryExporter.getSpans();
-const spansAsDicts = memoryExporter.getSpansAsDicts();
-const traceSpans = memoryExporter.getSpansByTraceId("your-trace-id");
-
-// Clear memory when needed
-memoryExporter.clear();
+registerOTel();
 ```
 
-#### Methods
-
-- **`getSpans(): ReadableSpan[]`** - Get all stored spans as OpenTelemetry ReadableSpan objects
-- **`getSpansAsDicts(): SpanDict[]`** - Get all stored spans as formatted dictionaries
-- **`getSpansByTraceId(traceId: string): SpanDict[]`** - Get all spans for a specific trace ID
-- **`clear(): void`** - Clear all stored spans from memory
-- **`export(spans: ReadableSpan[]): Promise<{ code: ExportResultCode }>`** - Export spans (called automatically by OpenTelemetry)
-- **`shutdown(): Promise<void>`** - Shutdown the exporter
-- **`forceFlush(): Promise<void>`** - Force flush pending spans
-
-### CandidatePromptManager
-
-Manages prompt template overrides using AsyncLocalStorage for context-local state. Useful for A/B testing or evaluating different prompt variations.
-
-#### Usage
+By default it reads `LEMMA_API_KEY` and `LEMMA_PROJECT_ID` from environment variables. You can also pass them explicitly:
 
 ```typescript
-import { CandidatePromptManager } from "@uselemma/tracing";
+registerOTel({
+  apiKey: "lma_...",
+  projectId: "proj_...",
+});
+```
 
-const promptManager = new CandidatePromptManager();
+### 2. Wrap your agent
 
-// Run code with prompt overrides
-await promptManager.run(
-  {
-    greeting: "Hello {{ name }}, welcome!",
-    farewell: "Goodbye {{ name }}!",
-  },
-  async () => {
-    // Within this context, candidate prompts will be used
-    const [template, wasOverridden] = promptManager.getEffectiveTemplate(
-      "greeting",
-      "Hi {{ name }}" // default template
-    );
+`wrapAgent` creates an OpenTelemetry span around your agent function and provides a `TraceContext` with helpers for recording results and errors.
 
-    console.log(template); // "Hello {{ name }}, welcome!"
-    console.log(wasOverridden); // true
+```typescript
+import { wrapAgent } from "@uselemma/tracing";
+
+const callAgent = async (userMessage: string) => {
+  const wrappedFn = wrapAgent(
+    "my-agent",
+    { initialState: { userMessage } },
+    async ({ recordGenerationResults }) => {
+      const result = await doWork(userMessage);
+      recordGenerationResults({ response: result });
+      return result;
+    }
+  );
+
+  const { result, runId } = await wrappedFn();
+  return { result, runId };
+};
+```
+
+## Framework Setup
+
+### Next.js
+
+Create an `instrumentation.ts` file in your project root. Next.js runs this automatically on startup:
+
+```typescript
+// instrumentation.ts
+export async function register() {
+  if (process.env.NEXT_RUNTIME === "nodejs") {
+    const { registerOTel } = await import("@uselemma/tracing");
+    registerOTel();
   }
-);
-```
-
-#### Methods
-
-- **`run<T>(candidatePrompts: Record<string, string> | null, callback: () => Promise<T> | T): Promise<T>`**  
-  Run a callback with candidate prompts set in the async context
-- **`getEffectiveTemplate(promptName: string, defaultTemplate: string): [string, boolean]`**  
-  Get the effective template, applying candidate override if present. Returns `[template, wasOverridden]`
-- **`annotateSpan(span: { setAttribute: (key: string, value: unknown) => void }): void`**  
-  Annotate an OpenTelemetry span with candidate prompt metadata
-
-## Example: Dual Processor Setup
-
-Use `MemorySpanExporter` alongside other exporters to both send traces to your backend and capture them locally:
-
-```typescript
-import { NodeSDK } from "@opentelemetry/sdk-node";
-import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { MemorySpanExporter } from "@uselemma/tracing";
-import { OtherSpanProcessor } from "your-backend";
-
-export const memoryExporter = new MemorySpanExporter();
-
-const sdk = new NodeSDK({
-  spanProcessors: [
-    new OtherSpanProcessor(), // Send to your backend
-    new SimpleSpanProcessor(memoryExporter), // Store in memory for local access
-  ],
-});
-
-sdk.start();
-
-// In your application code
-import { memoryExporter } from "./instrumentation";
-
-function myTracedFunction() {
-  // ... your code ...
-
-  // Access spans programmatically
-  const allSpans = memoryExporter.getSpansAsDicts();
-  const myTrace = memoryExporter.getSpansByTraceId(currentTraceId);
 }
 ```
+
+Enable the instrumentation hook in `next.config.js`:
+
+```javascript
+// next.config.js
+module.exports = {
+  experimental: {
+    instrumentationHook: true,
+  },
+};
+```
+
+### Node.js
+
+Import a setup file at the very top of your entry point:
+
+```typescript
+// tracer.ts
+import { registerOTel } from "@uselemma/tracing";
+registerOTel();
+```
+
+```typescript
+// index.ts
+import "./tracer"; // Must be first!
+// ... rest of your imports
+```
+
+## API Reference
+
+### `registerOTel(options?)`
+
+Registers an OpenTelemetry tracer provider configured to send traces to Lemma. Returns the `NodeTracerProvider` instance.
+
+#### `RegisterOTelOptions`
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `apiKey` | `string` | `process.env.LEMMA_API_KEY` | Lemma API key |
+| `projectId` | `string` | `process.env.LEMMA_PROJECT_ID` | Lemma project ID |
+| `baseUrl` | `string` | `https://api.uselemma.ai` | Base URL for the Lemma API |
+
+---
+
+### `wrapAgent(name, options, fn)`
+
+Wraps an agent function with OpenTelemetry tracing. Returns an async function that, when called, creates a span, executes `fn`, and returns `{ result, runId, span }`.
+
+#### Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `name` | `string` | Agent name, used as the span name |
+| `options` | `object` | Configuration (see below) |
+| `fn` | `(ctx: TraceContext, ...args) => any` | Your agent logic |
+
+#### Options
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `initialState` | `any` | — | Inputs to record on the trace |
+| `endOnExit` | `boolean` | `true` | Auto-end the span when `fn` returns |
+| `isExperiment` | `boolean` | `false` | Tag this run as an experiment |
+
+#### Return value
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `result` | `any` | The return value of your agent function |
+| `runId` | `string` | Unique identifier for this trace |
+| `span` | `Span` | The underlying OpenTelemetry span |
+
+---
+
+### `TraceContext`
+
+Passed as the first argument to your agent function.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `span` | `Span` | The OpenTelemetry span for custom instrumentation |
+| `runId` | `string` | Unique run identifier |
+| `onComplete(result)` | `(result: unknown) => void` | Records output and ends the span |
+| `onError(error)` | `(error: unknown) => void` | Records the error and ends the span |
+| `recordGenerationResults(results)` | `(results: Record<string, string>) => void` | Attaches generation outputs (e.g. `{ response: "..." }`) to the span |
+
+> When `endOnExit` is `true` (the default), the span ends automatically after your function returns. When `endOnExit` is `false`, you must call `onComplete` or `onError` yourself to end the span.
+
+## Streaming
+
+For streaming responses, set `endOnExit: false` and manually signal when the trace ends:
+
+```typescript
+import { wrapAgent } from "@uselemma/tracing";
+import { streamText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+
+const callAgent = async (userMessage: string) => {
+  const wrappedFn = wrapAgent(
+    "my-agent",
+    { initialState: { userMessage }, endOnExit: false },
+    async ({ onComplete, onError, recordGenerationResults }) => {
+      return streamText({
+        model: anthropic("claude-sonnet-4"),
+        messages: [{ role: "user", content: userMessage }],
+        experimental_telemetry: { isEnabled: true },
+        onFinish: (result) => {
+          recordGenerationResults({ response: result.text });
+          onComplete(result);
+        },
+        onError,
+      });
+    }
+  );
+
+  const { result, runId } = await wrappedFn();
+  return { result, runId };
+};
+```
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `LEMMA_API_KEY` | Your Lemma API key |
+| `LEMMA_PROJECT_ID` | Your Lemma project ID |
+
+Both are required unless passed explicitly to `registerOTel()`. You can find these in your [Lemma project settings](https://uselemma.ai).
 
 ## License
 
