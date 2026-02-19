@@ -8,6 +8,8 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +24,5 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Publish
-        run: pnpm publish --access public --no-git-checks
+        run: pnpm publish --access public --no-git-checks --provenance
         working-directory: packages/ts/tracing
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
