@@ -6,11 +6,11 @@
   "author": "Lemma",
   "repository": {
     "type": "git",
-    "url": "https://github.com/uselemma/tracing"
+    "url": "https://github.com/uselemma/sdk"
   },
-  "homepage": "https://github.com/uselemma/tracing#readme",
+  "homepage": "https://github.com/uselemma/sdk#readme",
   "bugs": {
-    "url": "https://github.com/uselemma/tracing/issues"
+    "url": "https://github.com/uselemma/sdk/issues"
   },
   "keywords": [
     "opentelemetry",
