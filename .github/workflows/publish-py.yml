@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Build
-        run: uv build
+        run: uv build --out-dir dist
         working-directory: packages/py/tracing
 
       - name: Publish
