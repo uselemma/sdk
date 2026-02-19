@@ -9,6 +9,7 @@ from opentelemetry import context, trace
 from opentelemetry.trace import Span, StatusCode
 
 T = TypeVar("T")
+Input = TypeVar("Input")
 
 
 @dataclass
@@ -46,11 +47,11 @@ class TraceContext:
 
 def wrap_agent(
     agent_name: str,
-    fn: Callable[..., T],
+    fn: Callable[[TraceContext, Input], T],
     *,
     is_experiment: bool = False,
     end_on_exit: bool = True,
-) -> Callable[[Any], tuple[T, str, Span]]:
+) -> Callable[[Input], tuple[T, str, Span]]:
     """Wrap an agent function with OpenTelemetry tracing.
 
     Creates a new span on every invocation, attaches agent metadata
@@ -72,16 +73,21 @@ def wrap_agent(
 
     Example::
 
-        my_agent = wrap_agent(
-            "my-agent",
-            async def handler(ctx, input):
-                result = await do_work(input["topic"])
-                ctx.on_complete(result)
-        )
+        from typing import TypedDict
+
+        class AgentInput(TypedDict):
+            topic: str
+
+        async def handler(ctx: TraceContext, input: AgentInput) -> str:
+            result = await do_work(input["topic"])
+            ctx.on_complete(result)
+            return result
+
+        my_agent = wrap_agent("my-agent", handler)
         await my_agent({"topic": "math"})
     """
 
-    async def _wrapped_async(input: Any) -> tuple[T, str, Span]:
+    async def _wrapped_async(input: Input) -> tuple[T, str, Span]:
         import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
 
         tracer = trace.get_tracer("lemma")
@@ -120,7 +126,7 @@ def wrap_agent(
         finally:
             context.detach(token)
 
-    def _wrapped_sync(input: Any) -> tuple[T, str, Span]:
+    def _wrapped_sync(input: Input) -> tuple[T, str, Span]:
         tracer = trace.get_tracer("lemma")
         run_id = str(uuid.uuid4())
 

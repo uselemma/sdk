@@ -24,9 +24,9 @@ export type TraceContext = {
  * state on the span.
  *
  * @example
- * const myAgent = wrapAgent(
+ * const myAgent = wrapAgent<{ topic: string }>(
  *   'my-agent',
- *   async (ctx, input: { topic: string }) => {
+ *   async (ctx, input) => {
  *     // use ctx.span, ctx.runId, ctx.onComplete, etc.
  *     const result = await doWork(input.topic);
  *     ctx.onComplete(result);
