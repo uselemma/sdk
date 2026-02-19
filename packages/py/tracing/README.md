@@ -25,9 +25,9 @@ register_otel()
 `wrap_agent` creates an OpenTelemetry span around your agent function and provides helpers for recording results.
 
 ```python
-from uselemma_tracing import wrap_agent
+from uselemma_tracing import TraceContext, wrap_agent
 
-def my_agent(ctx, user_message: str):
+def my_agent(ctx: TraceContext, user_message: str):
     result = do_work(user_message)
     ctx.record_generation_results({"response": result})
     return result
