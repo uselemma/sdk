@@ -46,30 +46,40 @@ def wrap_agent(
     agent_name: str,
     fn: Callable[..., T],
     *,
-    initial_state: Any = None,
     is_experiment: bool = False,
     end_on_exit: bool = True,
-) -> Callable[..., tuple[T, str, Span]]:
+) -> Callable[[Any], tuple[T, str, Span]]:
     """Wrap an agent function with OpenTelemetry tracing.
 
     Creates a new span on every invocation, attaches agent metadata
     (run ID, input, experiment flag), and handles error recording.
+    The ``input`` passed to the returned function is recorded as the
+    agent's initial state on the span.
 
     Args:
         agent_name: Human-readable name used as the span name.
         fn: The agent function to wrap. Receives a :class:`TraceContext`
-            as its first argument.
-        initial_state: Arbitrary state serialised as the agent input attribute.
+            as its first argument and the call-time ``input`` as its second.
         is_experiment: Mark this run as an experiment in Lemma.
         end_on_exit: Whether to auto-end the span when the function returns.
             Defaults to ``True``.
 
     Returns:
-        A wrapper that calls *fn* inside a traced context and returns
-        ``(result, run_id, span)``.
+        A wrapper that accepts an ``input``, calls *fn* inside a traced
+        context, and returns ``(result, run_id, span)``.
+
+    Example::
+
+        my_agent = wrap_agent(
+            "my-agent",
+            async def handler(ctx, input):
+                result = await do_work(input["topic"])
+                ctx.on_complete(result)
+        )
+        await my_agent({"topic": "math"})
     """
 
-    async def _wrapped_async(*args: Any, **kwargs: Any) -> tuple[T, str, Span]:
+    async def _wrapped_async(input: Any) -> tuple[T, str, Span]:
         import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
 
         tracer = trace.get_tracer("lemma")
@@ -79,7 +89,7 @@ def wrap_agent(
             agent_name,
             attributes={
                 "lemma.agent.run_id": run_id,
-                "lemma.agent.input": json.dumps(initial_state, default=str),
+                "lemma.agent.input": json.dumps(input, default=str),
                 "lemma.agent.is_experiment": is_experiment,
             },
         )
@@ -91,9 +101,9 @@ def wrap_agent(
             trace_ctx = TraceContext(span=span, run_id=run_id)
 
             if asyncio.iscoroutinefunction(fn):
-                result = await fn(trace_ctx, *args, **kwargs)
+                result = await fn(trace_ctx, input)
             else:
-                result = fn(trace_ctx, *args, **kwargs)
+                result = fn(trace_ctx, input)
 
             if end_on_exit and not trace_ctx._ended:
                 span.end()
@@ -108,7 +118,7 @@ def wrap_agent(
         finally:
             context.detach(token)
 
-    def _wrapped_sync(*args: Any, **kwargs: Any) -> tuple[T, str, Span]:
+    def _wrapped_sync(input: Any) -> tuple[T, str, Span]:
         tracer = trace.get_tracer("lemma")
         run_id = str(uuid.uuid4())
 
@@ -116,7 +126,7 @@ def wrap_agent(
             agent_name,
             attributes={
                 "lemma.agent.run_id": run_id,
-                "lemma.agent.input": json.dumps(initial_state, default=str),
+                "lemma.agent.input": json.dumps(input, default=str),
                 "lemma.agent.is_experiment": is_experiment,
             },
         )
@@ -126,7 +136,7 @@ def wrap_agent(
 
         try:
             trace_ctx = TraceContext(span=span, run_id=run_id)
-            result = fn(trace_ctx, *args, **kwargs)
+            result = fn(trace_ctx, input)
 
             if end_on_exit and not trace_ctx._ended:
                 span.end()

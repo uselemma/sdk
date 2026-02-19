@@ -20,38 +20,39 @@ export type TraceContext = {
  *
  * The returned function creates a new span on every invocation, attaches agent
  * metadata (run ID, input, experiment flag), and handles error recording.
+ * The `input` passed to the returned function is recorded as the agent's initial
+ * state on the span.
  *
  * @example
  * const myAgent = wrapAgent(
  *   'my-agent',
- *   { initialState: { topic: 'math' } },
- *   async (ctx, prompt: string) => {
+ *   async (ctx, input: { topic: string }) => {
  *     // use ctx.span, ctx.runId, ctx.onComplete, etc.
- *     const result = await doWork(prompt);
+ *     const result = await doWork(input.topic);
  *     ctx.onComplete(result);
  *   },
  * );
+ * await myAgent({ topic: 'math' });
  *
  * @example
  * // Keep the span open after the function exits
  * const longRunning = wrapAgent(
  *   'streaming-agent',
- *   { endOnExit: false },
- *   async (ctx) => {
+ *   async (ctx, input) => {
  *     // caller is responsible for calling ctx.onComplete / ctx.onError
  *   },
+ *   { endOnExit: false },
  * );
  *
  * @param agentName - Human-readable name used as the span name.
+ * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument and the call-time input as its second.
  * @param options - Configuration for the agent trace.
  * @param options.isExperiment - Mark this run as an experiment in Lemma.
- * @param options.initialState - Arbitrary state serialised as the agent input attribute.
  * @param options.endOnExit - Whether to auto-end the span when the function returns. Defaults to `true`.
- * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument.
- * @returns An async function that executes `fn` inside a traced context and returns `{ result, runId, span }`.
+ * @returns An async function that accepts an `input`, executes `fn` inside a traced context, and returns `{ result, runId, span }`.
  */
-export function wrapAgent<A extends unknown[]>(agentName: string, options: { isExperiment?: boolean, initialState?: any, endOnExit?: boolean }, fn: (traceContext: TraceContext, ...args: A) => any) {
-  const wrappedFunction = async function (this: any, ...args: A) {
+export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext: TraceContext, input: Input) => any, options?: { isExperiment?: boolean, endOnExit?: boolean }) {
+  const wrappedFunction = async function (this: any, input: Input) {
     // Obtain the Lemma tracer from the global OTel provider
     const tracer = trace.getTracer("lemma");
 
@@ -60,8 +61,8 @@ export function wrapAgent<A extends unknown[]>(agentName: string, options: { isE
     const span = tracer.startSpan(agentName, {
       attributes: {
         "lemma.agent.run_id": runId,
-        "lemma.agent.input": JSON.stringify(options.initialState),
-        "lemma.agent.is_experiment": options.isExperiment,
+        "lemma.agent.input": JSON.stringify(input),
+        "lemma.agent.is_experiment": options?.isExperiment,
       },
     });
 
@@ -89,8 +90,8 @@ export function wrapAgent<A extends unknown[]>(agentName: string, options: { isE
           span.setAttribute("lemma.agent.generation_results", JSON.stringify(results));
         };
 
-        // Invoke the wrapped agent function with the trace context and original args
-        const result = await fn.call(this, { span, runId, onComplete, onError, recordGenerationResults }, ...args);
+        // Invoke the wrapped agent function with the trace context and call-time input
+        const result = await fn.call(this, { span, runId, onComplete, onError, recordGenerationResults }, input);
 
         // Auto-end the span unless the caller opted out (e.g. for streaming)
         if (options?.endOnExit !== false) {
