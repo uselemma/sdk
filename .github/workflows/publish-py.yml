@@ -23,5 +23,5 @@ jobs:
         working-directory: packages/py/tracing
 
       - name: Publish
-        run: uv publish
+        run: uv publish dist/*
         working-directory: packages/py/tracing
