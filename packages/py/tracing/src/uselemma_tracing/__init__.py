@@ -1,10 +1,11 @@
-from .register import register_otel
+from .register import create_lemma_span_processor, register_otel
 from .trace_wrapper import wrap_agent, TraceContext
 from .instrument_anthropic import instrument_anthropic
 from .instrument_openai import instrument_openai
 from .instrument_openai_agents import instrument_openai_agents
 
 __all__ = [
+    "create_lemma_span_processor",
     "register_otel",
     "wrap_agent",
     "TraceContext",

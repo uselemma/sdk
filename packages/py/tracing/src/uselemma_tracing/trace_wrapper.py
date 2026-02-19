@@ -39,7 +39,9 @@ class TraceContext:
 
     def record_generation_results(self, results: dict[str, str]) -> None:
         """Attach arbitrary generation results to the span."""
-        self.span.set_attribute("lemma.agent.generation_results", json.dumps(results, default=str))
+        self.span.set_attribute(
+            "lemma.agent.generation_results", json.dumps(results, default=str)
+        )
 
 
 def wrap_agent(
