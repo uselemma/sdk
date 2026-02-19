@@ -1,58 +1,65 @@
-# @uselemma/tracing
+# Lemma Tracing
 
 OpenTelemetry-based tracing for AI agents. Capture inputs, outputs, timing, token usage, and errors — then view everything in [Lemma](https://uselemma.ai).
 
-## Installation
+## Packages
+
+| Package | Language | Path | Description |
+| --- | --- | --- | --- |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript | `packages/ts/tracing` | Node.js tracing SDK |
+| [`uselemma-tracing`](packages/py/tracing) | Python | `packages/py/tracing` | Python tracing SDK |
+
+## Getting Started
+
+### TypeScript
 
 ```bash
 npm install @uselemma/tracing
 ```
 
-## Quick Start
+See the [TypeScript package README](packages/ts/tracing/README.md) for usage.
 
-### 1. Register the tracer provider
+### Python
 
-Call `registerOTel` once when your application starts. It reads `LEMMA_API_KEY` and `LEMMA_PROJECT_ID` from environment variables by default.
-
-```typescript
-import { registerOTel } from "@uselemma/tracing";
-
-registerOTel();
+```bash
+pip install uselemma-tracing
 ```
 
-### 2. Wrap your agent
+See the [Python package README](packages/py/tracing/README.md) for usage.
 
-`wrapAgent` creates an OpenTelemetry span around your agent function and provides helpers for recording results.
+## Development
 
-```typescript
-import { wrapAgent } from "@uselemma/tracing";
+This is a polyglot monorepo managed with:
 
-const wrappedFn = wrapAgent(
-  "my-agent",
-  { initialState: { userMessage } },
-  async ({ recordGenerationResults }) => {
-    const result = await doWork(userMessage);
-    recordGenerationResults({ response: result });
-    return result;
-  }
-);
+- **[pnpm](https://pnpm.io/)** workspaces for TypeScript packages
+- **[Turborepo](https://turbo.build/)** for build orchestration and caching
+- **[uv](https://docs.astral.sh/uv/)** for Python packages
 
-const { result, runId } = await wrappedFn();
+### Prerequisites
+
+- Node.js >= 18
+- pnpm >= 9
+- Python >= 3.11
+- uv
+
+### Build all TypeScript packages
+
+```bash
+pnpm install
+pnpm build
 ```
 
-## Environment Variables
+### Install Python dependencies
 
-| Variable | Description |
-| --- | --- |
-| `LEMMA_API_KEY` | Your Lemma API key |
-| `LEMMA_PROJECT_ID` | Your Lemma project ID |
-
-Both are required unless passed explicitly to `registerOTel()`.
+```bash
+uv sync
+```
 
 ## Documentation
 
-- [Tracing Overview](https://docs.uselemma.ai/tracing/overview) — concepts, API reference, and usage patterns
-- [Vercel AI SDK Integration](https://docs.uselemma.ai/tracing/integrations/vercel-ai-sdk) — framework setup, streaming, and examples
+- [Tracing Overview](https://docs.uselemma.ai/tracing/overview)
+- [Vercel AI SDK Integration](https://docs.uselemma.ai/tracing/integrations/vercel-ai-sdk)
+- [OpenAI Agents Integration](https://docs.uselemma.ai/tracing/integrations/openai-agents)
 
 ## License
 

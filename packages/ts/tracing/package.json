@@ -1,0 +1,56 @@
+{
+  "name": "@uselemma/tracing",
+  "version": "1.0.0",
+  "description": "OpenTelemetry-based tracing module for Lemma",
+  "license": "MIT",
+  "author": "Lemma",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/uselemma/tracing"
+  },
+  "homepage": "https://github.com/uselemma/tracing#readme",
+  "bugs": {
+    "url": "https://github.com/uselemma/tracing/issues"
+  },
+  "keywords": [
+    "opentelemetry",
+    "tracing",
+    "observability",
+    "monitoring",
+    "llm",
+    "instrumentation"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run type-check && pnpm run build"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.211.0",
+    "@opentelemetry/sdk-trace-base": "^2.2.0",
+    "@opentelemetry/sdk-trace-node": "^2.5.0",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "@types/node": "^22.18.8",
+    "prettier": "^3.6.2",
+    "prettier-plugin-tailwindcss": "^0.6.14",
+    "typescript": "^5.9.3"
+  }
+}

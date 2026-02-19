@@ -5,12 +5,25 @@ node_modules/
 # Build output
 dist/
 
+# Turbo
+.turbo/
+
 # Logs
 *.log
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
 
 # OS files
 .DS_Store
