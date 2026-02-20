@@ -13,6 +13,9 @@ type SpanId = string;
 export class RunBatchSpanProcessor implements SpanProcessor {
   private isShutdown = false;
   private spanIdToRunId = new Map<SpanId, RunId>();
+  private topLevelSpanIdByRunId = new Map<RunId, SpanId>();
+  private directChildCountByRunId = new Map<RunId, number>();
+  private directChildSpanIdToRunId = new Map<SpanId, RunId>();
   private batches = new Map<RunId, ReadableSpan[]>();
   private endedRuns = new Set<RunId>();
   private readonly exporter: SpanExporter;
@@ -28,6 +31,8 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       const runId = this.getRunIdFromSpan(span) ?? randomUUID();
       span.setAttribute("lemma.run_id", runId);
       this.spanIdToRunId.set(spanId, runId);
+      this.topLevelSpanIdByRunId.set(runId, spanId);
+      this.directChildCountByRunId.set(runId, 0);
       return;
     }
 
@@ -36,6 +41,11 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     const runId = this.spanIdToRunId.get(parentSpanId);
     if (!runId) return;
+
+    if (this.topLevelSpanIdByRunId.get(runId) === parentSpanId) {
+      this.directChildSpanIdToRunId.set(spanId, runId);
+      this.directChildCountByRunId.set(runId, (this.directChildCountByRunId.get(runId) ?? 0) + 1);
+    }
 
     this.spanIdToRunId.set(spanId, runId);
     span.setAttribute("lemma.run_id", runId);
@@ -53,6 +63,12 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     const isTopLevelRun = this.isTopLevelRun(span);
     const shouldSkipExport = this.shouldSkipExport(span);
+    const directChildRunId = this.directChildSpanIdToRunId.get(spanId);
+    if (directChildRunId) {
+      this.directChildSpanIdToRunId.delete(spanId);
+      const currentCount = this.directChildCountByRunId.get(directChildRunId) ?? 0;
+      this.directChildCountByRunId.set(directChildRunId, Math.max(0, currentCount - 1));
+    }
 
     if (!shouldSkipExport) {
       const batch = this.batches.get(runId);
@@ -62,8 +78,9 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     if (isTopLevelRun) {
       this.endedRuns.add(runId);
-      void this.exportRunBatch(runId, false);
     }
+
+    void this.exportRunBatch(runId, false);
   }
 
   async forceFlush(): Promise<void> {
@@ -106,7 +123,9 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   }
 
   private async exportRunBatch(runId: RunId, force: boolean): Promise<void> {
-    if (!force && !this.endedRuns.has(runId)) return;
+    if (!force && (!this.endedRuns.has(runId) || !this.hasNoOpenDirectChildren(runId))) {
+      return;
+    }
 
     const batch = this.batches.get(runId);
 
@@ -121,11 +140,22 @@ export class RunBatchSpanProcessor implements SpanProcessor {
     });
   }
 
+  private hasNoOpenDirectChildren(runId: RunId): boolean {
+    return (this.directChildCountByRunId.get(runId) ?? 0) === 0;
+  }
+
   private clearRunMapping(runId: RunId): void {
     for (const [spanId, mappedRunId] of this.spanIdToRunId.entries()) {
       if (mappedRunId === runId) {
         this.spanIdToRunId.delete(spanId);
       }
     }
+    for (const [spanId, mappedRunId] of this.directChildSpanIdToRunId.entries()) {
+      if (mappedRunId === runId) {
+        this.directChildSpanIdToRunId.delete(spanId);
+      }
+    }
+    this.topLevelSpanIdByRunId.delete(runId);
+    this.directChildCountByRunId.delete(runId);
   }
 }

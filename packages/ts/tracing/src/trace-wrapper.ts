@@ -7,9 +7,9 @@ export type TraceContext = {
   span: Span;
   /** Unique identifier for this agent run. */
   runId: string;
-  /** Signal that the agent completed successfully. Records the result and ends the span. */
+  /** Signal that the agent completed successfully. Records the result on the span. */
   onComplete: (result: unknown) => void;
-  /** Signal that the agent encountered an error. Records the exception and ends the span. */
+  /** Signal that the agent encountered an error. Records the exception on the span. */
   onError: (error: unknown) => void;
   /** Attach arbitrary generation results (e.g. model outputs) to the span. */
   recordGenerationResults: (results: Record<string, string>) => void;
@@ -78,14 +78,12 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
         const onComplete = (result: unknown) => {
           span.setAttribute("ai.agent.output", JSON.stringify(result));
-          span.end();
         };
 
         const onError = (error: unknown) => {
           // Normalise non-Error values so OTel always receives an Error instance
           span.recordException(error instanceof Error ? error : new Error(String(error)));
           span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
-          span.end();
         };
 
         const recordGenerationResults = (results: Record<string, string>) => {

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, TypeVar
 
 from opentelemetry import context, trace
@@ -24,21 +24,15 @@ class TraceContext:
     run_id: str
     """Unique identifier for this agent run."""
 
-    _ended: bool = field(default=False, init=False, repr=False)
-
     def on_complete(self, result: Any) -> None:
-        """Signal successful completion. Records the result and ends the span."""
+        """Signal successful completion. Records the result on the span."""
         self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-        self.span.end()
-        self._ended = True
 
     def on_error(self, error: Any) -> None:
-        """Signal an error. Records the exception and ends the span."""
+        """Signal an error. Records the exception on the span."""
         exc = error if isinstance(error, BaseException) else Exception(str(error))
         self.span.record_exception(exc)
         self.span.set_status(StatusCode.ERROR)
-        self.span.end()
-        self._ended = True
 
     def record_generation_results(self, results: dict[str, str]) -> None:
         """Attach arbitrary generation results to the span."""
@@ -117,7 +111,7 @@ def wrap_agent(
             else:
                 result = fn(trace_ctx, input)
 
-            if end_on_exit and not trace_ctx._ended:
+            if end_on_exit:
                 span.end()
 
             return result, run_id, span
@@ -152,7 +146,7 @@ def wrap_agent(
             trace_ctx = TraceContext(span=span, run_id=run_id)
             result = fn(trace_ctx, input)
 
-            if end_on_exit and not trace_ctx._ended:
+            if end_on_exit:
                 span.end()
 
             return result, run_id, span

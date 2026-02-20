@@ -108,6 +108,29 @@ def test_nextjs_scope_spans_are_skipped():
     assert [span.span_id for span in exporter.exports[0]] == [10]
 
 
+def test_export_waits_for_direct_child_that_ends_after_root():
+    exporter = _FakeExporter()
+    processor = RunBatchSpanProcessor(exporter)
+
+    root = _FakeSpan(
+        name="ai.agent.run",
+        span_id=100,
+        parent=None,
+        attributes={"lemma.run_id": "run-late-child"},
+    )
+    child = _FakeSpan(name="ai.step", span_id=101, parent=_FakeParent(span_id=100))
+
+    processor.on_start(root)
+    processor.on_start(child)
+
+    processor.on_end(root)
+    assert exporter.exports == []
+
+    processor.on_end(child)
+    assert len(exporter.exports) == 1
+    assert [span.span_id for span in exporter.exports[0]] == [100, 101]
+
+
 def test_force_flush_exports_each_run_in_separate_batch():
     exporter = _FakeExporter()
     processor = RunBatchSpanProcessor(exporter)
