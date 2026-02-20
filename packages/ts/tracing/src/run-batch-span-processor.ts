@@ -26,7 +26,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     if (this.isTopLevelRun(span)) {
       const runId = this.getRunIdFromSpan(span) ?? randomUUID();
-      span.setAttribute("ai.agent.run_id", runId);
+      span.setAttribute("lemma.run_id", runId);
       this.spanIdToRunId.set(spanId, runId);
       return;
     }
@@ -38,7 +38,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
     if (!runId) return;
 
     this.spanIdToRunId.set(spanId, runId);
-    span.setAttribute("ai.agent.run_id", runId);
+    span.setAttribute("lemma.run_id", runId);
   }
 
   onEnd(span: ReadableSpan): void {
@@ -52,7 +52,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
     if (!runId) return;
 
     const isTopLevelRun = this.isTopLevelRun(span);
-    const shouldSkipExport = this.getInstrumentationScopeName(span) === "next.js";
+    const shouldSkipExport = this.shouldSkipExport(span);
 
     if (!shouldSkipExport) {
       const batch = this.batches.get(runId);
@@ -89,7 +89,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   private getRunIdFromSpan(span: Span): string | undefined {
     const attributes = (span as unknown as { attributes?: Record<string, unknown> })
       .attributes;
-    const runId = attributes?.["ai.agent.run_id"];
+    const runId = attributes?.["lemma.run_id"];
     return typeof runId === "string" && runId.length > 0 ? runId : undefined;
   }
 
@@ -99,6 +99,10 @@ export class RunBatchSpanProcessor implements SpanProcessor {
         instrumentationScope?: { name?: string };
       }
     ).instrumentationScope?.name;
+  }
+
+  private shouldSkipExport(span: Span | ReadableSpan): boolean {
+    return this.getInstrumentationScopeName(span) === "next.js";
   }
 
   private async exportRunBatch(runId: RunId, force: boolean): Promise<void> {

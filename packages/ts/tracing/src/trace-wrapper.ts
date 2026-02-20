@@ -62,7 +62,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
     const span = tracer.startSpan("ai.agent.run", {
       attributes: {
         "ai.agent.name": agentName,
-        "ai.agent.run_id": runId,
+        "lemma.run_id": runId,
         "ai.agent.input": JSON.stringify(input),
         "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
       },

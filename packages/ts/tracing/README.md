@@ -32,7 +32,7 @@ enableExperimentMode();
 
 `wrapAgent` creates a root OpenTelemetry span named `ai.agent.run` and records:
 - `ai.agent.name`
-- `ai.agent.run_id`
+- `lemma.run_id`
 - `ai.agent.input`
 - `lemma.is_experiment`
 
@@ -54,7 +54,7 @@ const { result, runId } = await wrappedFn();
 
 ## Export Behavior
 
-- Spans are exported in run-specific batches keyed by `ai.agent.run_id`.
+- Spans are exported in run-specific batches keyed by `lemma.run_id`.
 - A run batch is exported when its top-level `ai.agent.run` span ends.
 - `forceFlush()` exports remaining runs in separate batches per run.
 - Spans with `instrumentationScope.name === "next.js"` are excluded from export.

@@ -100,7 +100,7 @@ def wrap_agent(
             context=Context(),
             attributes={
                 "ai.agent.name": agent_name,
-                "ai.agent.run_id": run_id,
+                "lemma.run_id": run_id,
                 "ai.agent.input": json.dumps(input, default=str),
                 "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
             },
@@ -139,7 +139,7 @@ def wrap_agent(
             context=Context(),
             attributes={
                 "ai.agent.name": agent_name,
-                "ai.agent.run_id": run_id,
+                "lemma.run_id": run_id,
                 "ai.agent.input": json.dumps(input, default=str),
                 "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
             },

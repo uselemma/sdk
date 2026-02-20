@@ -68,7 +68,7 @@ def test_run_batch_waits_for_top_level_run_end():
         name="ai.agent.run",
         span_id=1,
         parent=None,
-        attributes={"ai.agent.run_id": "run-a"},
+        attributes={"lemma.run_id": "run-a"},
     )
     child = _FakeSpan(name="ai.step", span_id=2, parent=_FakeParent(span_id=1))
 
@@ -90,7 +90,7 @@ def test_nextjs_scope_spans_are_skipped():
         name="ai.agent.run",
         span_id=10,
         parent=None,
-        attributes={"ai.agent.run_id": "run-next"},
+        attributes={"lemma.run_id": "run-next"},
     )
     nextjs_span = _FakeSpan(
         name="middleware",
@@ -116,13 +116,13 @@ def test_force_flush_exports_each_run_in_separate_batch():
         name="ai.agent.run",
         span_id=20,
         parent=None,
-        attributes={"ai.agent.run_id": "run-1"},
+        attributes={"lemma.run_id": "run-1"},
     )
     run2 = _FakeSpan(
         name="ai.agent.run",
         span_id=30,
         parent=None,
-        attributes={"ai.agent.run_id": "run-2"},
+        attributes={"lemma.run_id": "run-2"},
     )
     child1 = _FakeSpan(name="child", span_id=21, parent=_FakeParent(span_id=20))
     child2 = _FakeSpan(name="child", span_id=31, parent=_FakeParent(span_id=30))

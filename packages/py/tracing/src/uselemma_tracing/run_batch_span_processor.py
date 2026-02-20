@@ -23,8 +23,8 @@ class RunBatchSpanProcessor(SpanProcessor):
         span_id = span.context.span_id
 
         if self._is_top_level_run(span):
-            run_id = self._get_attr(span, "ai.agent.run_id") or str(uuid.uuid4())
-            span.set_attribute("ai.agent.run_id", run_id)
+            run_id = self._get_attr(span, "lemma.run_id") or str(uuid.uuid4())
+            span.set_attribute("lemma.run_id", run_id)
             with self._lock:
                 self._span_id_to_run_id[span_id] = run_id
             return
@@ -40,7 +40,7 @@ class RunBatchSpanProcessor(SpanProcessor):
 
             self._span_id_to_run_id[span_id] = run_id
 
-        span.set_attribute("ai.agent.run_id", run_id)
+        span.set_attribute("lemma.run_id", run_id)
 
     def on_end(self, span: ReadableSpan) -> None:
         span_id = span.context.span_id
@@ -55,7 +55,7 @@ class RunBatchSpanProcessor(SpanProcessor):
                 return
 
             is_top_level_run = self._is_top_level_run(span)
-            should_skip_export = self._scope_name(span) == "next.js"
+            should_skip_export = self._should_skip_export(span)
 
             if not should_skip_export:
                 self._batches.setdefault(run_id, []).append(span)
@@ -117,6 +117,10 @@ class RunBatchSpanProcessor(SpanProcessor):
     def _scope_name(span: Span | ReadableSpan) -> str | None:
         scope = getattr(span, "instrumentation_scope", None)
         return getattr(scope, "name", None)
+
+    @classmethod
+    def _should_skip_export(cls, span: Span | ReadableSpan) -> bool:
+        return cls._scope_name(span) == "next.js"
 
     @staticmethod
     def _get_attr(span: Span, key: str) -> str | None:
