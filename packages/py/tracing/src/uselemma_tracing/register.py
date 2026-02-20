@@ -5,7 +5,8 @@ import os
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import SpanProcessor
+from .run_batch_span_processor import RunBatchSpanProcessor
 
 
 def create_lemma_span_processor(
@@ -13,7 +14,7 @@ def create_lemma_span_processor(
     api_key: str | None = None,
     project_id: str | None = None,
     base_url: str = "https://api.uselemma.ai",
-) -> BatchSpanProcessor:
+) -> SpanProcessor:
     """Create a :class:`BatchSpanProcessor` pre-configured to export traces to Lemma.
 
     Use this when you need to add Lemma as one of several span processors on an
@@ -64,7 +65,7 @@ def create_lemma_span_processor(
         },
     )
 
-    return BatchSpanProcessor(exporter)
+    return RunBatchSpanProcessor(exporter)
 
 
 def register_otel(

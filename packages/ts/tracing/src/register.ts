@@ -1,6 +1,7 @@
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { type SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-proto";
+import { RunBatchSpanProcessor } from "./run-batch-span-processor";
 
 export type LemmaOTelOptions = {
   /** Lemma API key. Defaults to LEMMA_API_KEY environment variable. */
@@ -41,7 +42,7 @@ export type CreateLemmaSpanProcessorOptions = LemmaOTelOptions;
  */
 export function createLemmaSpanProcessor(
   options: LemmaOTelOptions = {}
-): BatchSpanProcessor {
+): SpanProcessor {
   const apiKey = options.apiKey ?? process.env.LEMMA_API_KEY;
   const projectId = options.projectId ?? process.env.LEMMA_PROJECT_ID;
   const baseUrl = options.baseUrl ?? "https://api.uselemma.ai";
@@ -52,14 +53,14 @@ export function createLemmaSpanProcessor(
     );
   }
 
-  return new BatchSpanProcessor(
+  return new RunBatchSpanProcessor(
     new OTLPTraceExporter({
       url: `${baseUrl}/otel/v1/traces`,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "X-Lemma-Project-ID": projectId,
       },
-    })
+    }),
   );
 }
 

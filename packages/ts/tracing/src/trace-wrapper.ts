@@ -1,5 +1,6 @@
-import { context, trace, Span } from "@opentelemetry/api";
+import { context, ROOT_CONTEXT, trace, Span } from "@opentelemetry/api";
 import { v4 as uuidv4 } from "uuid";
+import { isExperimentModeEnabled } from "./experiment-mode";
 
 export type TraceContext = {
   /** The active OpenTelemetry span for this agent run. */
@@ -18,8 +19,8 @@ export type TraceContext = {
  * Wraps an agent function with OpenTelemetry tracing, automatically creating
  * a span for the agent run and providing a `TraceContext` to the wrapped function.
  *
- * The returned function creates a new span on every invocation, attaches agent
- * metadata (run ID, input, experiment flag), and handles error recording.
+ * The returned function creates a new root span on every invocation, attaches
+ * agent metadata (name, run ID, input, experiment flag), and handles error recording.
  * The `input` passed to the returned function is recorded as the agent's initial
  * state on the span.
  *
@@ -44,7 +45,7 @@ export type TraceContext = {
  *   { endOnExit: false },
  * );
  *
- * @param agentName - Human-readable name used as the span name.
+ * @param agentName - Human-readable agent name recorded as `ai.agent.name`.
  * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument and the call-time input as its second.
  * @param options - Configuration for the agent trace.
  * @param options.isExperiment - Mark this run as an experiment in Lemma.
@@ -58,16 +59,17 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
     // Generate a unique run ID and open a new span for this agent invocation
     const runId = uuidv4();
-    const span = tracer.startSpan(agentName, {
+    const span = tracer.startSpan("ai.agent.run", {
       attributes: {
-        "lemma.agent.run_id": runId,
-        "lemma.agent.input": JSON.stringify(input),
-        "lemma.agent.is_experiment": options?.isExperiment,
+        "ai.agent.name": agentName,
+        "ai.agent.run_id": runId,
+        "ai.agent.input": JSON.stringify(input),
+        "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
       },
-    });
+    }, ROOT_CONTEXT);
 
     // Propagate the span as the active context so child spans are nested correctly
-    const ctx = trace.setSpan(context.active(), span);
+    const ctx = trace.setSpan(ROOT_CONTEXT, span);
 
     try {
       return await context.with(ctx, async () => {
@@ -75,7 +77,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
         // to manually signal completion, errors, or record generation results
 
         const onComplete = (result: unknown) => {
-          span.setAttribute("lemma.agent.output", JSON.stringify(result));
+          span.setAttribute("ai.agent.output", JSON.stringify(result));
           span.end();
         };
 
@@ -87,7 +89,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
         };
 
         const recordGenerationResults = (results: Record<string, string>) => {
-          span.setAttribute("lemma.agent.generation_results", JSON.stringify(results));
+          span.setAttribute("ai.agent.generation_results", JSON.stringify(results));
         };
 
         // Invoke the wrapped agent function with the trace context and call-time input

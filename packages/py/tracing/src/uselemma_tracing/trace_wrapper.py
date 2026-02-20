@@ -6,7 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
 
 from opentelemetry import context, trace
+from opentelemetry.context import Context
 from opentelemetry.trace import Span, StatusCode
+from .experiment_mode import is_experiment_mode_enabled
 
 T = TypeVar("T")
 Input = TypeVar("Input")
@@ -26,7 +28,7 @@ class TraceContext:
 
     def on_complete(self, result: Any) -> None:
         """Signal successful completion. Records the result and ends the span."""
-        self.span.set_attribute("lemma.agent.output", json.dumps(result, default=str))
+        self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
         self.span.end()
         self._ended = True
 
@@ -41,7 +43,7 @@ class TraceContext:
     def record_generation_results(self, results: dict[str, str]) -> None:
         """Attach arbitrary generation results to the span."""
         self.span.set_attribute(
-            "lemma.agent.generation_results", json.dumps(results, default=str)
+            "ai.agent.generation_results", json.dumps(results, default=str)
         )
 
 
@@ -94,15 +96,17 @@ def wrap_agent(
         run_id = str(uuid.uuid4())
 
         span = tracer.start_span(
-            agent_name,
+            "ai.agent.run",
+            context=Context(),
             attributes={
-                "lemma.agent.run_id": run_id,
-                "lemma.agent.input": json.dumps(input, default=str),
-                "lemma.agent.is_experiment": is_experiment,
+                "ai.agent.name": agent_name,
+                "ai.agent.run_id": run_id,
+                "ai.agent.input": json.dumps(input, default=str),
+                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
             },
         )
 
-        ctx = trace.set_span_in_context(span)
+        ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
 
         try:
@@ -131,15 +135,17 @@ def wrap_agent(
         run_id = str(uuid.uuid4())
 
         span = tracer.start_span(
-            agent_name,
+            "ai.agent.run",
+            context=Context(),
             attributes={
-                "lemma.agent.run_id": run_id,
-                "lemma.agent.input": json.dumps(input, default=str),
-                "lemma.agent.is_experiment": is_experiment,
+                "ai.agent.name": agent_name,
+                "ai.agent.run_id": run_id,
+                "ai.agent.input": json.dumps(input, default=str),
+                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
             },
         )
 
-        ctx = trace.set_span_in_context(span)
+        ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
 
         try:

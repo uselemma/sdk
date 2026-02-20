@@ -20,9 +20,21 @@ from uselemma_tracing import register_otel
 register_otel()
 ```
 
+You can also enable experiment mode globally for the process:
+
+```python
+from uselemma_tracing import enable_experiment_mode
+
+enable_experiment_mode()
+```
+
 ### 2. Wrap your agent
 
-`wrap_agent` creates an OpenTelemetry span around your agent function and provides helpers for recording results.
+`wrap_agent` creates a root OpenTelemetry span named `ai.agent.run` and records:
+- `ai.agent.name`
+- `ai.agent.run_id`
+- `ai.agent.input`
+- `lemma.is_experiment`
 
 ```python
 from uselemma_tracing import TraceContext, wrap_agent
@@ -35,6 +47,13 @@ def my_agent(ctx: TraceContext, user_message: str):
 wrapped = wrap_agent("my-agent", my_agent, initial_state={"user_message": user_message})
 result, run_id, span = wrapped()
 ```
+
+## Export Behavior
+
+- Spans are exported in run-specific batches keyed by `ai.agent.run_id`.
+- A run batch is exported when its top-level `ai.agent.run` span ends.
+- `force_flush()` exports remaining runs in separate batches per run.
+- Spans with `instrumentation_scope.name == "next.js"` are excluded from export.
 
 ## Environment Variables
 

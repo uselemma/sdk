@@ -20,9 +20,21 @@ import { registerOTel } from "@uselemma/tracing";
 registerOTel();
 ```
 
+You can also enable experiment mode globally for the process:
+
+```typescript
+import { enableExperimentMode } from "@uselemma/tracing";
+
+enableExperimentMode();
+```
+
 ### 2. Wrap your agent
 
-`wrapAgent` creates an OpenTelemetry span around your agent function and provides helpers for recording results.
+`wrapAgent` creates a root OpenTelemetry span named `ai.agent.run` and records:
+- `ai.agent.name`
+- `ai.agent.run_id`
+- `ai.agent.input`
+- `lemma.is_experiment`
 
 ```typescript
 import { wrapAgent } from "@uselemma/tracing";
@@ -39,6 +51,13 @@ const wrappedFn = wrapAgent(
 
 const { result, runId } = await wrappedFn();
 ```
+
+## Export Behavior
+
+- Spans are exported in run-specific batches keyed by `ai.agent.run_id`.
+- A run batch is exported when its top-level `ai.agent.run` span ends.
+- `forceFlush()` exports remaining runs in separate batches per run.
+- Spans with `instrumentationScope.name === "next.js"` are excluded from export.
 
 ## Environment Variables
 
