@@ -122,7 +122,7 @@ triage_agent = Agent(
 
 async def run_agent(ctx: TraceContext, user_message: str) -> str:
     result = await Runner.run(triage_agent, user_message)
-    ctx.complete(result.final_output)
+    ctx.on_complete(result.final_output)
     return result.final_output
 
 

@@ -26,7 +26,7 @@ class TraceContext:
     auto_end_root: bool = False
     _root_ended: bool = field(default=False, init=False, repr=False)
 
-    def complete(self, result: Any) -> bool:
+    def on_complete(self, result: Any) -> bool:
         """Record output and complete when ``auto_end_root`` is disabled."""
         self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
         if self.auto_end_root or self._root_ended:
@@ -77,7 +77,7 @@ def wrap_agent(
 
         async def handler(ctx: TraceContext, input: AgentInput) -> str:
             result = await do_work(input["topic"])
-            ctx.complete(result)
+            ctx.on_complete(result)
             return result
 
         my_agent = wrap_agent("my-agent", handler)

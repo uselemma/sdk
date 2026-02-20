@@ -41,7 +41,7 @@ from uselemma_tracing import TraceContext, wrap_agent
 
 def my_agent(ctx: TraceContext, user_message: str):
     result = do_work(user_message)
-    ctx.complete(result)
+    ctx.on_complete(result)
     return result
 
 wrapped = wrap_agent("my-agent", my_agent, auto_end_root=True)

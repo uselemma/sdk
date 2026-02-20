@@ -92,13 +92,13 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     disable_experiment_mode()
 
 
-def test_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
+def test_on_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
     wrapped_manual = wrap_agent(
         "demo-agent",
-        lambda ctx, value: (ctx.complete("done"), value),
+        lambda ctx, value: (ctx.on_complete("done"), value),
         auto_end_root=False,
     )
     (ended_manual, _), _, span_manual = wrapped_manual("hello")
@@ -107,7 +107,7 @@ def test_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
 
     wrapped_auto = wrap_agent(
         "demo-agent",
-        lambda ctx, value: (ctx.complete("done"), value),
+        lambda ctx, value: (ctx.on_complete("done"), value),
         auto_end_root=True,
     )
     (ended_auto, _), _, span_auto = wrapped_auto("hello")

@@ -11,7 +11,7 @@ export type TraceContext = {
    * Record output and complete the run when `autoEndRoot` is disabled.
    * Returns `true` when this call ends the top-level span.
    */
-  complete: (result: unknown) => boolean;
+  onComplete: (result: unknown) => boolean;
   /** Record an error on the span. Marks the span as errored. */
   recordError: (error: unknown) => void;
 };
@@ -40,7 +40,7 @@ export type WrapAgentOptions = {
  *   'my-agent',
  *   async (ctx, input) => {
  *     const result = await doWork(input.topic);
- *     ctx.complete(result);
+ *     ctx.onComplete(result);
  *   },
  * );
  * await myAgent({ topic: 'math' });
@@ -76,7 +76,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
     try {
       return await context.with(ctx, async () => {
-        const complete = (result: unknown): boolean => {
+        const onComplete = (result: unknown): boolean => {
           span.setAttribute("ai.agent.output", JSON.stringify(result));
           if (autoEndRoot || rootEnded) return false;
           rootEnded = true;
@@ -89,7 +89,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
           span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
         };
 
-        const result = await fn.call(this, { span, runId, complete, recordError }, input);
+        const result = await fn.call(this, { span, runId, onComplete, recordError }, input);
 
         return { result, runId, span };
       });
