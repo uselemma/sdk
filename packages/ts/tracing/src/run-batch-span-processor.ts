@@ -17,7 +17,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   private directChildCountByRunId = new Map<RunId, number>();
   private directChildSpanIdToRunId = new Map<SpanId, RunId>();
   private batches = new Map<RunId, ReadableSpan[]>();
-  private endedRuns = new Set<RunId>();
   private readonly exporter: SpanExporter;
 
   constructor(exporter: SpanExporter) {
@@ -61,7 +60,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     if (!runId) return;
 
-    const isTopLevelRun = this.isTopLevelRun(span);
     const shouldSkipExport = this.shouldSkipExport(span);
     const directChildRunId = this.directChildSpanIdToRunId.get(spanId);
     if (directChildRunId) {
@@ -74,10 +72,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       const batch = this.batches.get(runId);
       if (batch) batch.push(span);
       else this.batches.set(runId, [span]);
-    }
-
-    if (isTopLevelRun) {
-      this.endedRuns.add(runId);
     }
 
     void this.exportRunBatch(runId, false);
@@ -123,14 +117,13 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   }
 
   private async exportRunBatch(runId: RunId, force: boolean): Promise<void> {
-    if (!force && (!this.endedRuns.has(runId) || !this.hasNoOpenDirectChildren(runId))) {
+    if (!force && !this.hasNoOpenDirectChildren(runId)) {
       return;
     }
 
     const batch = this.batches.get(runId);
 
     this.batches.delete(runId);
-    this.endedRuns.delete(runId);
     this.clearRunMapping(runId);
 
     if (!batch || batch.length === 0) return;

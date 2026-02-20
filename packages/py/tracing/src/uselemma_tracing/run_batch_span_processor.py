@@ -20,7 +20,6 @@ class RunBatchSpanProcessor(SpanProcessor):
         self._direct_child_count_by_run_id: dict[str, int] = {}
         self._direct_child_span_id_to_run_id: dict[int, str] = {}
         self._batches: dict[str, list[ReadableSpan]] = {}
-        self._ended_runs: set[str] = set()
 
     def on_start(self, span: Span, parent_context: Context | None = None) -> None:
         span_id = span.context.span_id
@@ -65,7 +64,6 @@ class RunBatchSpanProcessor(SpanProcessor):
             if run_id is None:
                 return
 
-            is_top_level_run = self._is_top_level_run(span)
             should_skip_export = self._should_skip_export(span)
             direct_child_run_id = self._direct_child_span_id_to_run_id.pop(span_id, None)
             if direct_child_run_id is not None:
@@ -75,9 +73,6 @@ class RunBatchSpanProcessor(SpanProcessor):
 
             if not should_skip_export:
                 self._batches.setdefault(run_id, []).append(span)
-
-            if is_top_level_run:
-                self._ended_runs.add(run_id)
 
         self._export_run_batch(run_id, force=False)
 
@@ -103,14 +98,10 @@ class RunBatchSpanProcessor(SpanProcessor):
 
     def _export_run_batch(self, run_id: str, force: bool) -> None:
         with self._lock:
-            if not force and (
-                run_id not in self._ended_runs
-                or not self._has_no_open_direct_children_locked(run_id)
-            ):
+            if not force and not self._has_no_open_direct_children_locked(run_id):
                 return
 
             batch = self._batches.pop(run_id, [])
-            self._ended_runs.discard(run_id)
             self._clear_run_mapping_locked(run_id)
 
         if not batch:
