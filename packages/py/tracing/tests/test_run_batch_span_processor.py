@@ -60,7 +60,7 @@ class _FakeExporter:
         return None
 
 
-def test_run_batch_exports_once_direct_children_are_done():
+def test_run_batch_auto_ends_root_once_direct_children_are_done():
     exporter = _FakeExporter()
     processor = RunBatchSpanProcessor(exporter)
 
@@ -76,10 +76,7 @@ def test_run_batch_exports_once_direct_children_are_done():
     processor.on_start(child)
     processor.on_end(child)
     assert len(exporter.exports) == 1
-    assert [span.span_id for span in exporter.exports[0]] == [2]
-
-    processor.on_end(root)
-    assert len(exporter.exports) == 1
+    assert [span.span_id for span in exporter.exports[0]] == [2, 1]
 
 
 def test_nextjs_scope_spans_are_skipped():

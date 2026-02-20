@@ -16,10 +16,12 @@ class RunBatchSpanProcessor(SpanProcessor):
         self._lock = threading.Lock()
         self._shutdown = False
         self._span_id_to_run_id: dict[int, str] = {}
+        self._top_level_span_by_run_id: dict[str, Span] = {}
         self._top_level_span_id_by_run_id: dict[str, int] = {}
         self._direct_child_count_by_run_id: dict[str, int] = {}
         self._direct_child_span_id_to_run_id: dict[int, str] = {}
         self._batches: dict[str, list[ReadableSpan]] = {}
+        self._ended_runs: set[str] = set()
 
     def on_start(self, span: Span, parent_context: Context | None = None) -> None:
         span_id = span.context.span_id
@@ -29,6 +31,7 @@ class RunBatchSpanProcessor(SpanProcessor):
             span.set_attribute("lemma.run_id", run_id)
             with self._lock:
                 self._span_id_to_run_id[span_id] = run_id
+                self._top_level_span_by_run_id[run_id] = span
                 self._top_level_span_id_by_run_id[run_id] = span_id
                 self._direct_child_count_by_run_id[run_id] = 0
             return
@@ -55,6 +58,7 @@ class RunBatchSpanProcessor(SpanProcessor):
     def on_end(self, span: ReadableSpan) -> None:
         span_id = span.context.span_id
         parent = getattr(span, "parent", None)
+        top_level_span_to_auto_end: Span | None = None
 
         with self._lock:
             run_id = self._span_id_to_run_id.get(span_id)
@@ -64,15 +68,28 @@ class RunBatchSpanProcessor(SpanProcessor):
             if run_id is None:
                 return
 
+            is_top_level_run = self._is_top_level_run(span)
             should_skip_export = self._should_skip_export(span)
             direct_child_run_id = self._direct_child_span_id_to_run_id.pop(span_id, None)
             if direct_child_run_id is not None:
-                self._direct_child_count_by_run_id[direct_child_run_id] = max(
+                next_count = max(
                     0, self._direct_child_count_by_run_id.get(direct_child_run_id, 0) - 1
                 )
+                self._direct_child_count_by_run_id[direct_child_run_id] = next_count
+                if next_count == 0 and direct_child_run_id not in self._ended_runs:
+                    top_level_span_to_auto_end = self._top_level_span_by_run_id.pop(
+                        direct_child_run_id, None
+                    )
 
             if not should_skip_export:
                 self._batches.setdefault(run_id, []).append(span)
+
+            if is_top_level_run:
+                self._ended_runs.add(run_id)
+                self._top_level_span_by_run_id.pop(run_id, None)
+
+        if top_level_span_to_auto_end is not None:
+            top_level_span_to_auto_end.end()
 
         self._export_run_batch(run_id, force=False)
 
@@ -98,10 +115,14 @@ class RunBatchSpanProcessor(SpanProcessor):
 
     def _export_run_batch(self, run_id: str, force: bool) -> None:
         with self._lock:
-            if not force and not self._has_no_open_direct_children_locked(run_id):
+            if not force and (
+                run_id not in self._ended_runs
+                or not self._has_no_open_direct_children_locked(run_id)
+            ):
                 return
 
             batch = self._batches.pop(run_id, [])
+            self._ended_runs.discard(run_id)
             self._clear_run_mapping_locked(run_id)
 
         if not batch:
@@ -124,6 +145,7 @@ class RunBatchSpanProcessor(SpanProcessor):
         ]
         for span_id in stale_direct_child_span_ids:
             del self._direct_child_span_id_to_run_id[span_id]
+        self._top_level_span_by_run_id.pop(run_id, None)
         self._top_level_span_id_by_run_id.pop(run_id, None)
         self._direct_child_count_by_run_id.pop(run_id, None)
 

@@ -362,7 +362,7 @@ wheels = [
 
 [[package]]
 name = "uselemma-tracing"
-version = "2.3.0"
+version = "2.4.0"
 source = { editable = "packages/py/tracing" }
 dependencies = [
     { name = "opentelemetry-api" },
