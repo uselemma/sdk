@@ -10,4 +10,4 @@ export {
   disableExperimentMode,
   isExperimentModeEnabled,
 } from "./experiment-mode";
-export { wrapAgent, type TraceContext } from "./trace-wrapper";
+export { wrapAgent, type TraceContext, type WrapAgentOptions } from "./trace-wrapper";

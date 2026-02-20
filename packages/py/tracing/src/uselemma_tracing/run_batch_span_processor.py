@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import threading
 import uuid
 from collections.abc import Mapping
@@ -7,7 +6,7 @@ from typing import Any
 
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan, Span
-from opentelemetry.sdk.trace.export import SpanExporter, SpanProcessor
+from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult, SpanProcessor
 
 
 class RunBatchSpanProcessor(SpanProcessor):
@@ -18,6 +17,7 @@ class RunBatchSpanProcessor(SpanProcessor):
         self._span_id_to_run_id: dict[int, str] = {}
         self._top_level_span_by_run_id: dict[str, Span] = {}
         self._top_level_span_id_by_run_id: dict[str, int] = {}
+        self._auto_end_enabled_runs: set[str] = set()
         self._direct_child_count_by_run_id: dict[str, int] = {}
         self._direct_child_span_id_to_run_id: dict[int, str] = {}
         self._batches: dict[str, list[ReadableSpan]] = {}
@@ -33,6 +33,8 @@ class RunBatchSpanProcessor(SpanProcessor):
                 self._span_id_to_run_id[span_id] = run_id
                 self._top_level_span_by_run_id[run_id] = span
                 self._top_level_span_id_by_run_id[run_id] = span_id
+                if self._is_auto_end_enabled(span):
+                    self._auto_end_enabled_runs.add(run_id)
                 self._direct_child_count_by_run_id[run_id] = 0
             return
 
@@ -70,13 +72,20 @@ class RunBatchSpanProcessor(SpanProcessor):
 
             is_top_level_run = self._is_top_level_run(span)
             should_skip_export = self._should_skip_export(span)
-            direct_child_run_id = self._direct_child_span_id_to_run_id.pop(span_id, None)
+            direct_child_run_id = self._direct_child_span_id_to_run_id.pop(
+                span_id, None
+            )
             if direct_child_run_id is not None:
                 next_count = max(
-                    0, self._direct_child_count_by_run_id.get(direct_child_run_id, 0) - 1
+                    0,
+                    self._direct_child_count_by_run_id.get(direct_child_run_id, 0) - 1,
                 )
                 self._direct_child_count_by_run_id[direct_child_run_id] = next_count
-                if next_count == 0 and direct_child_run_id not in self._ended_runs:
+                if (
+                    next_count == 0
+                    and direct_child_run_id not in self._ended_runs
+                    and direct_child_run_id in self._auto_end_enabled_runs
+                ):
                     top_level_span_to_auto_end = self._top_level_span_by_run_id.pop(
                         direct_child_run_id, None
                     )
@@ -128,7 +137,9 @@ class RunBatchSpanProcessor(SpanProcessor):
         if not batch:
             return
 
-        self._exporter.export(batch)
+        result = self._exporter.export(batch)
+        if result in (None, SpanExportResult.SUCCESS):
+            return
 
     def _clear_run_mapping_locked(self, run_id: str) -> None:
         stale_span_ids = [
@@ -147,6 +158,7 @@ class RunBatchSpanProcessor(SpanProcessor):
             del self._direct_child_span_id_to_run_id[span_id]
         self._top_level_span_by_run_id.pop(run_id, None)
         self._top_level_span_id_by_run_id.pop(run_id, None)
+        self._auto_end_enabled_runs.discard(run_id)
         self._direct_child_count_by_run_id.pop(run_id, None)
 
     def _has_no_open_direct_children_locked(self, run_id: str) -> bool:
@@ -172,3 +184,10 @@ class RunBatchSpanProcessor(SpanProcessor):
             return None
         value: Any = attributes.get(key)
         return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _is_auto_end_enabled(span: Span) -> bool:
+        attributes = getattr(span, "attributes", None)
+        if not isinstance(attributes, Mapping):
+            return False
+        return attributes.get("lemma.auto_end_root") is True

@@ -65,6 +65,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
+    assert tracer.last_attributes["lemma.auto_end_root"] is False
 
     wrapped_local = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=True)
     wrapped_local("hello")
@@ -79,4 +80,36 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
 
+    wrapped_auto_end = wrap_agent(
+        "demo-agent",
+        lambda _ctx, value: value,
+        auto_end_root=True,
+    )
+    wrapped_auto_end("hello")
+    assert tracer.last_attributes is not None
+    assert tracer.last_attributes["lemma.auto_end_root"] is True
+
     disable_experiment_mode()
+
+
+def test_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped_manual = wrap_agent(
+        "demo-agent",
+        lambda ctx, value: (ctx.complete("done"), value),
+        auto_end_root=False,
+    )
+    (ended_manual, _), _, span_manual = wrapped_manual("hello")
+    assert ended_manual is True
+    assert span_manual.ended is True
+
+    wrapped_auto = wrap_agent(
+        "demo-agent",
+        lambda ctx, value: (ctx.complete("done"), value),
+        auto_end_root=True,
+    )
+    (ended_auto, _), _, span_auto = wrapped_auto("hello")
+    assert ended_auto is False
+    assert span_auto.ended is False

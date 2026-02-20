@@ -41,12 +41,12 @@ import { wrapAgent } from "@uselemma/tracing";
 
 const wrappedFn = wrapAgent(
   "my-agent",
-  { initialState: { userMessage } },
-  async ({ recordGenerationResults }) => {
+  async ({ complete }) => {
     const result = await doWork(userMessage);
-    recordGenerationResults({ response: result });
+    complete(result);
     return result;
   },
+  { autoEndRoot: true },
 );
 
 const { result, runId } = await wrappedFn();

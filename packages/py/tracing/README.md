@@ -41,11 +41,11 @@ from uselemma_tracing import TraceContext, wrap_agent
 
 def my_agent(ctx: TraceContext, user_message: str):
     result = do_work(user_message)
-    ctx.record_generation_results({"response": result})
+    ctx.complete(result)
     return result
 
-wrapped = wrap_agent("my-agent", my_agent, initial_state={"user_message": user_message})
-result, run_id, span = wrapped()
+wrapped = wrap_agent("my-agent", my_agent, auto_end_root=True)
+result, run_id, span = wrapped("hello")
 ```
 
 ## Export Behavior

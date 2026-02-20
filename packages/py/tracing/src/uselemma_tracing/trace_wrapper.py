@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
 
 from opentelemetry import context, trace
@@ -23,22 +23,23 @@ class TraceContext:
 
     run_id: str
     """Unique identifier for this agent run."""
+    auto_end_root: bool = False
+    _root_ended: bool = field(default=False, init=False, repr=False)
 
-    def on_complete(self, result: Any) -> None:
-        """Signal successful completion. Records the result on the span."""
+    def complete(self, result: Any) -> bool:
+        """Record output and complete when ``auto_end_root`` is disabled."""
         self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
+        if self.auto_end_root or self._root_ended:
+            return False
+        self.span.end()
+        self._root_ended = True
+        return True
 
-    def on_error(self, error: Any) -> None:
-        """Signal an error. Records the exception on the span."""
+    def record_error(self, error: Any) -> None:
+        """Record an error on the span. Marks the span as errored."""
         exc = error if isinstance(error, BaseException) else Exception(str(error))
         self.span.record_exception(exc)
         self.span.set_status(StatusCode.ERROR)
-
-    def record_generation_results(self, results: dict[str, str]) -> None:
-        """Attach arbitrary generation results to the span."""
-        self.span.set_attribute(
-            "ai.agent.generation_results", json.dumps(results, default=str)
-        )
 
 
 def wrap_agent(
@@ -46,7 +47,7 @@ def wrap_agent(
     fn: Callable[[TraceContext, Input], T],
     *,
     is_experiment: bool = False,
-    end_on_exit: bool = True,
+    auto_end_root: bool = False,
 ) -> Callable[[Input], tuple[T, str, Span]]:
     """Wrap an agent function with OpenTelemetry tracing.
 
@@ -60,8 +61,8 @@ def wrap_agent(
         fn: The agent function to wrap. Receives a :class:`TraceContext`
             as its first argument and the call-time ``input`` as its second.
         is_experiment: Mark this run as an experiment in Lemma.
-        end_on_exit: Whether to auto-end the span when the function returns.
-            Defaults to ``True``.
+        auto_end_root: If ``True``, the run processor can automatically
+            end the top-level span after all direct child spans have ended.
 
     Returns:
         A wrapper that accepts an ``input``, calls *fn* inside a traced
@@ -76,16 +77,14 @@ def wrap_agent(
 
         async def handler(ctx: TraceContext, input: AgentInput) -> str:
             result = await do_work(input["topic"])
-            ctx.on_complete(result)
+            ctx.complete(result)
             return result
 
         my_agent = wrap_agent("my-agent", handler)
         await my_agent({"topic": "math"})
     """
 
-    async def _wrapped_async(input: Input) -> tuple[T, str, Span]:
-        import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
-
+    def _start_root_span(input: Input) -> tuple[Span, str]:
         tracer = trace.get_tracer("lemma")
         run_id = str(uuid.uuid4())
 
@@ -97,64 +96,57 @@ def wrap_agent(
                 "lemma.run_id": run_id,
                 "ai.agent.input": json.dumps(input, default=str),
                 "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
+                "lemma.auto_end_root": auto_end_root,
             },
         )
+        return span, run_id
+
+    async def _wrapped_async(input: Input) -> tuple[T, str, Span]:
+        import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
+
+        span, run_id = _start_root_span(input)
 
         ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
 
         try:
-            trace_ctx = TraceContext(span=span, run_id=run_id)
+            trace_ctx = TraceContext(
+                span=span,
+                run_id=run_id,
+                auto_end_root=auto_end_root,
+            )
 
             if asyncio.iscoroutinefunction(fn):
                 result = await fn(trace_ctx, input)
             else:
                 result = fn(trace_ctx, input)
 
-            if end_on_exit:
-                span.end()
-
             return result, run_id, span
         except BaseException as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR)
-            if end_on_exit:
-                span.end()
             raise
         finally:
             context.detach(token)
 
     def _wrapped_sync(input: Input) -> tuple[T, str, Span]:
-        tracer = trace.get_tracer("lemma")
-        run_id = str(uuid.uuid4())
-
-        span = tracer.start_span(
-            "ai.agent.run",
-            context=Context(),
-            attributes={
-                "ai.agent.name": agent_name,
-                "lemma.run_id": run_id,
-                "ai.agent.input": json.dumps(input, default=str),
-                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
-            },
-        )
+        span, run_id = _start_root_span(input)
 
         ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
 
         try:
-            trace_ctx = TraceContext(span=span, run_id=run_id)
+            trace_ctx = TraceContext(
+                span=span,
+                run_id=run_id,
+                auto_end_root=auto_end_root,
+            )
             result = fn(trace_ctx, input)
-
-            if end_on_exit:
-                span.end()
 
             return result, run_id, span
         except BaseException as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR)
-            if end_on_exit:
-                span.end()
             raise
         finally:
             context.detach(token)
