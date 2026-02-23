@@ -33,7 +33,6 @@ enableExperimentMode();
 `wrapAgent` creates a root OpenTelemetry span named `ai.agent.run` and records:
 - `ai.agent.name`
 - `lemma.run_id`
-- `ai.agent.input`
 - `lemma.is_experiment`
 
 ```typescript

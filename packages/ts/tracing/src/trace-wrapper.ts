@@ -8,8 +8,8 @@ export type TraceContext = {
   /** Unique identifier for this agent run. */
   runId: string;
   /**
-   * Record output and complete the run when `autoEndRoot` is disabled.
-   * Returns `true` when this call ends the top-level span.
+   * Signal the run is complete. When `autoEndRoot` is disabled, this
+   * ends the top-level span and returns `true`.
    */
   onComplete: (result: unknown) => boolean;
   /** Record an error on the span. Marks the span as errored. */
@@ -31,9 +31,7 @@ export type WrapAgentOptions = {
  * a span for the agent run and providing a `TraceContext` to the wrapped function.
  *
  * The returned function creates a new root span on every invocation, attaches
- * agent metadata (name, run ID, input, experiment flag), and handles error recording.
- * The `input` passed to the returned function is recorded as the agent's initial
- * state on the span.
+ * agent metadata (name, run ID, experiment flag), and handles error recording.
  *
  * @example
  * const myAgent = wrapAgent<{ topic: string }>(
@@ -63,7 +61,6 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
       attributes: {
         "ai.agent.name": agentName,
         "lemma.run_id": runId,
-        "ai.agent.input": JSON.stringify(input),
         "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
         "lemma.auto_end_root": options?.autoEndRoot === true,
       },
@@ -76,8 +73,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
     try {
       return await context.with(ctx, async () => {
-        const onComplete = (result: unknown): boolean => {
-          span.setAttribute("ai.agent.output", JSON.stringify(result));
+        const onComplete = (_result: unknown): boolean => {
           if (autoEndRoot || rootEnded) return false;
           rootEnded = true;
           span.end();

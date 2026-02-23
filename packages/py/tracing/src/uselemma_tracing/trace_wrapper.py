@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
@@ -27,8 +26,7 @@ class TraceContext:
     _root_ended: bool = field(default=False, init=False, repr=False)
 
     def on_complete(self, result: Any) -> bool:
-        """Record output and complete when ``auto_end_root`` is disabled."""
-        self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
+        """Signal the run is complete. Ends the root span when ``auto_end_root`` is disabled."""
         if self.auto_end_root or self._root_ended:
             return False
         self.span.end()
@@ -52,9 +50,7 @@ def wrap_agent(
     """Wrap an agent function with OpenTelemetry tracing.
 
     Creates a new span on every invocation, attaches agent metadata
-    (run ID, input, experiment flag), and handles error recording.
-    The ``input`` passed to the returned function is recorded as the
-    agent's initial state on the span.
+    (run ID, experiment flag), and handles error recording.
 
     Args:
         agent_name: Human-readable name used as the span name.
@@ -94,7 +90,6 @@ def wrap_agent(
             attributes={
                 "ai.agent.name": agent_name,
                 "lemma.run_id": run_id,
-                "ai.agent.input": json.dumps(input, default=str),
                 "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
                 "lemma.auto_end_root": auto_end_root,
             },
