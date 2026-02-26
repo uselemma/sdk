@@ -1,0 +1,27 @@
+name: Publish uselemma-experiments (PyPI)
+
+on:
+  push:
+    tags:
+      - "py-experiments/v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build
+        run: uv build --out-dir dist
+        working-directory: packages/py/experiments
+
+      - name: Publish
+        run: uv publish dist/*
+        working-directory: packages/py/experiments
