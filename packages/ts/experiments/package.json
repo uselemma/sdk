@@ -1,7 +1,7 @@
 {
-  "name": "@uselemma/tracing",
-  "version": "2.8.0",
-  "description": "OpenTelemetry-based tracing module for Lemma",
+  "name": "@uselemma/experiments",
+  "version": "0.1.0",
+  "description": "Experiment runner for Lemma — fetch test cases, run agents, record results",
   "license": "MIT",
   "author": "Lemma",
   "repository": {
@@ -13,12 +13,10 @@
     "url": "https://github.com/uselemma/sdk/issues"
   },
   "keywords": [
-    "opentelemetry",
-    "tracing",
-    "observability",
-    "monitoring",
+    "lemma",
+    "experiments",
     "llm",
-    "instrumentation"
+    "evaluation"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -41,19 +39,13 @@
     "prepublishOnly": "pnpm run type-check && pnpm run build"
   },
   "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/exporter-trace-otlp-proto": "^0.211.0",
-    "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "@opentelemetry/sdk-trace-node": "^2.5.0",
-    "uuid": "^13.0.0"
+    "@uselemma/tracing": "workspace:*",
+    "cli-progress": "^3.12.0"
   },
   "devDependencies": {
-    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+    "@types/cli-progress": "^3.11.6",
     "@types/node": "^22.18.8",
-    "prettier": "^3.6.2",
-    "prettier-plugin-tailwindcss": "^0.6.14",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "@vitest/coverage-v8": "^3.2.4"
+    "vitest": "^3.2.4"
   }
 }

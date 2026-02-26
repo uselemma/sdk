@@ -4,6 +4,7 @@
   "scripts": {
     "build": "turbo run build",
     "type-check": "turbo run type-check",
+    "test": "turbo run test",
     "clean": "turbo run clean"
   },
   "devDependencies": {

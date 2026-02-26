@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
 from opentelemetry.context import Context
 
 from uselemma_tracing import (
@@ -17,6 +18,8 @@ from uselemma_tracing import (
 class _FakeSpan:
     attributes: dict[str, Any] = field(default_factory=dict)
     ended: bool = False
+    record_exception_calls: list = field(default_factory=list, repr=False)
+    set_status_calls: list = field(default_factory=list, repr=False)
 
     def set_attribute(self, key: str, value: Any) -> None:
         self.attributes[key] = value
@@ -24,11 +27,11 @@ class _FakeSpan:
     def end(self) -> None:
         self.ended = True
 
-    def record_exception(self, _exc: BaseException) -> None:
-        return None
+    def record_exception(self, exc: BaseException) -> None:
+        self.record_exception_calls.append(exc)
 
-    def set_status(self, _status: Any) -> None:
-        return None
+    def set_status(self, status: Any) -> None:
+        self.set_status_calls.append(status)
 
 
 class _FakeTracer:
@@ -113,3 +116,100 @@ def test_on_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
     (ended_auto, _), _, span_auto = wrapped_auto("hello")
     assert ended_auto is False
     assert span_auto.ended is False
+
+
+async def test_wrap_agent_async_agent(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    async def async_handler(_ctx, value):
+        return value.upper()
+
+    wrapped = wrap_agent("async-agent", async_handler)
+    result, run_id, span = await wrapped("hello")
+    assert result == "HELLO"
+    assert isinstance(run_id, str)
+    assert tracer.last_name == "ai.agent.run"
+    assert tracer.last_attributes["ai.agent.name"] == "async-agent"
+
+
+def test_record_error_records_exception_and_sets_status(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(ctx, _value):
+        ctx.record_error(Exception("boom"))
+        return "ok"
+
+    wrapped = wrap_agent("demo-agent", handler)
+    result, _, span = wrapped("x")
+    assert result == "ok"
+    assert len(span.record_exception_calls) == 1
+    assert str(span.record_exception_calls[0]) == "boom"
+    assert len(span.set_status_calls) == 1
+
+
+def test_record_error_wraps_non_exception_in_exception(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(ctx, _value):
+        ctx.record_error("not an exception")
+        return "ok"
+
+    wrapped = wrap_agent("demo-agent", handler)
+    result, _, span = wrapped("x")
+    assert result == "ok"
+    assert len(span.record_exception_calls) == 1
+    assert isinstance(span.record_exception_calls[0], Exception)
+    assert str(span.record_exception_calls[0]) == "not an exception"
+
+
+def test_wrap_agent_sync_error_path(monkeypatch):
+    tracer = _FakeTracer()
+    spans_created = []
+
+    def capturing_start_span(name, *, context=None, attributes=None):
+        s = _FakeSpan(attributes=dict(attributes or {}))
+        spans_created.append(s)
+        return s
+
+    tracer.start_span = capturing_start_span
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(_ctx, _value):
+        raise ValueError("sync boom")
+
+    wrapped = wrap_agent("demo-agent", handler)
+    with pytest.raises(ValueError, match="sync boom"):
+        wrapped("x")
+
+    assert len(spans_created) == 1
+    assert len(spans_created[0].record_exception_calls) == 1
+    assert "sync boom" in str(spans_created[0].record_exception_calls[0])
+    assert len(spans_created[0].set_status_calls) == 1
+
+
+async def test_wrap_agent_async_error_path(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    async def handler(_ctx, _value):
+        raise RuntimeError("async boom")
+
+    wrapped = wrap_agent("async-agent", handler)
+    spans_created = []
+
+    def capturing_start_span(name, *, context=None, attributes=None):
+        s = _FakeSpan(attributes=dict(attributes or {}))
+        spans_created.append(s)
+        return s
+
+    tracer.start_span = capturing_start_span
+
+    with pytest.raises(RuntimeError, match="async boom"):
+        await wrapped("x")
+
+    assert len(spans_created) == 1
+    assert len(spans_created[0].record_exception_calls) == 1
+    assert "async boom" in str(spans_created[0].record_exception_calls[0])

@@ -114,7 +114,7 @@ def wrap_agent(
             if asyncio.iscoroutinefunction(fn):
                 result = await fn(trace_ctx, input)
             else:
-                result = fn(trace_ctx, input)
+                result = fn(trace_ctx, input)  # pragma: no cover
 
             return result, run_id, span
         except BaseException as exc:

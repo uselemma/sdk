@@ -1,0 +1,42 @@
+[project]
+name = "uselemma-experiments"
+version = "0.1.0"
+description = "Experiment runner for Lemma — fetch test cases, run agents, record results"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+keywords = ["lemma", "experiments", "llm", "evaluation"]
+dependencies = [
+    "httpx>=0.27",
+    "tqdm>=4.0",
+    "uselemma-tracing",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.hatch.envs.default]
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+
+[project.urls]
+Homepage = "https://github.com/uselemma/sdk"
+Repository = "https://github.com/uselemma/sdk"
+Issues = "https://github.com/uselemma/sdk/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uselemma_experiments"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "tests/", "LICENSE", "README.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -9,3 +9,4 @@ members = ["packages/py/*"]
 
 [tool.uv.sources]
 uselemma-tracing = { workspace = true }
+uselemma-experiments = { workspace = true }
