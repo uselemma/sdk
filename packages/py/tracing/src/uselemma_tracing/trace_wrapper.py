@@ -22,15 +22,21 @@ class TraceContext:
 
     run_id: str
     """Unique identifier for this agent run."""
-    auto_end_root: bool = False
+    auto_end_root: bool = True
     _root_ended: bool = field(default=False, init=False, repr=False)
 
     def on_complete(self, result: Any) -> bool:
-        """Signal the run is complete. Ends the root span when ``auto_end_root`` is disabled."""
+        """Signal the run is complete.
+
+        When ``auto_end_root`` is enabled (the default), this is a no-op and
+        returns ``False`` — the span is ended automatically when the wrapped
+        function returns.  When ``auto_end_root`` is disabled, this ends the
+        top-level span and returns ``True``.
+        """
         if self.auto_end_root or self._root_ended:
             return False
-        self.span.end()
         self._root_ended = True
+        self.span.end()
         return True
 
     def record_error(self, error: Any) -> None:
@@ -45,7 +51,7 @@ def wrap_agent(
     fn: Callable[[TraceContext, Input], T],
     *,
     is_experiment: bool = False,
-    auto_end_root: bool = False,
+    auto_end_root: bool = True,
 ) -> Callable[[Input], tuple[T, str, Span]]:
     """Wrap an agent function with OpenTelemetry tracing.
 
@@ -57,8 +63,9 @@ def wrap_agent(
         fn: The agent function to wrap. Receives a :class:`TraceContext`
             as its first argument and the call-time ``input`` as its second.
         is_experiment: Mark this run as an experiment in Lemma.
-        auto_end_root: If ``True``, the run processor can automatically
-            end the top-level span after all direct child spans have ended.
+        auto_end_root: Automatically end the top-level span when the wrapped
+            function returns or throws (default: ``True``).  Set to ``False``
+            to manage span lifetime manually via :meth:`TraceContext.on_complete`.
 
     Returns:
         A wrapper that accepts an ``input``, calls *fn* inside a traced
@@ -73,7 +80,6 @@ def wrap_agent(
 
         async def handler(ctx: TraceContext, input: AgentInput) -> str:
             result = await do_work(input["topic"])
-            ctx.on_complete(result)
             return result
 
         my_agent = wrap_agent("my-agent", handler)
@@ -116,10 +122,17 @@ def wrap_agent(
             else:
                 result = fn(trace_ctx, input)  # pragma: no cover
 
+            if auto_end_root and not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
+
             return result, run_id, span
         except BaseException as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR)
+            if not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
             raise
         finally:
             context.detach(token)
@@ -138,10 +151,17 @@ def wrap_agent(
             )
             result = fn(trace_ctx, input)
 
+            if auto_end_root and not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
+
             return result, run_id, span
         except BaseException as exc:
             span.record_exception(exc)
             span.set_status(StatusCode.ERROR)
+            if not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
             raise
         finally:
             context.detach(token)

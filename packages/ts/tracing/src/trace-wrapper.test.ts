@@ -89,6 +89,47 @@ describe("wrapAgent", () => {
     expect(call[1].attributes["lemma.is_experiment"]).toBe(true);
   });
 
+  it("lemma.auto_end_root is true by default", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    await wrapped("x");
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.auto_end_root"]).toBe(true);
+  });
+
+  it("lemma.auto_end_root is false when autoEndRoot: false", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v, {
+      autoEndRoot: false,
+    });
+    await wrapped("x");
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.auto_end_root"]).toBe(false);
+  });
+
+  it("autoEndRoot: true (default) - span auto-ends when fn returns", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    await wrapped("hello");
+
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("autoEndRoot: true (default) - onComplete returns false, span still auto-ends", async () => {
+    let onCompleteReturn: boolean | undefined;
+    const wrapped = wrapAgent(
+      "demo-agent",
+      async (ctx) => {
+        onCompleteReturn = ctx.onComplete("done");
+        return "ok";
+      }
+    );
+
+    await wrapped("hello");
+
+    expect(onCompleteReturn).toBe(false);
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("autoEndRoot: false - onComplete ends span and returns true", async () => {
     let onCompleteReturn: boolean | undefined;
     const wrapped = wrapAgent(
@@ -106,10 +147,22 @@ describe("wrapAgent", () => {
     expect(out.runId).toBeDefined();
     expect(out.span).toBeDefined();
     expect(onCompleteReturn).toBe(true);
-    expect(mockEnd).toHaveBeenCalled();
+    expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("onComplete called twice - second returns false", async () => {
+  it("autoEndRoot: false - span not ended if onComplete not called", async () => {
+    const wrapped = wrapAgent(
+      "demo-agent",
+      async (_ctx, v) => v,
+      { autoEndRoot: false }
+    );
+
+    await wrapped("hello");
+
+    expect(mockEnd).not.toHaveBeenCalled();
+  });
+
+  it("autoEndRoot: false - onComplete called twice ends span only once", async () => {
     const results: boolean[] = [];
     const wrapped = wrapAgent(
       "demo-agent",
@@ -126,23 +179,6 @@ describe("wrapAgent", () => {
     expect(results[0]).toBe(true);
     expect(results[1]).toBe(false);
     expect(mockEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("autoEndRoot: true - onComplete returns false, span not ended", async () => {
-    let onCompleteReturn: boolean | undefined;
-    const wrapped = wrapAgent(
-      "demo-agent",
-      async (ctx) => {
-        onCompleteReturn = ctx.onComplete("done");
-        return "ok";
-      },
-      { autoEndRoot: true }
-    );
-
-    await wrapped("hello");
-
-    expect(onCompleteReturn).toBe(false);
-    expect(mockEnd).not.toHaveBeenCalled();
   });
 
   it("returns runId in result", async () => {
@@ -183,7 +219,7 @@ describe("wrapAgent", () => {
     expect(mockRecordException.mock.calls[0][0].message).toBe("not an error");
   });
 
-  it("agent throws - exception recorded and rethrown", async () => {
+  it("agent throws - exception recorded, span ended, and error rethrown", async () => {
     const wrapped = wrapAgent("demo-agent", async () => {
       throw new ValueError("sync boom");
     });
@@ -192,6 +228,7 @@ describe("wrapAgent", () => {
 
     expect(mockRecordException).toHaveBeenCalledWith(expect.any(Error));
     expect(mockSetStatus).toHaveBeenCalledWith({ code: 2 });
+    expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -8,8 +8,9 @@ export type TraceContext = {
   /** Unique identifier for this agent run. */
   runId: string;
   /**
-   * Signal the run is complete. When `autoEndRoot` is disabled, this
-   * ends the top-level span and returns `true`.
+   * Signal the run is complete. When `autoEndRoot` is enabled (the default),
+   * this is a no-op and returns `false` — the span is ended automatically.
+   * When `autoEndRoot` is disabled, this ends the top-level span and returns `true`.
    */
   onComplete: (result: unknown) => boolean;
   /** Record an error on the span. Marks the span as errored. */
@@ -20,8 +21,9 @@ export type WrapAgentOptions = {
   /** Mark this run as an experiment in Lemma. */
   isExperiment?: boolean;
   /**
-   * If `true`, the run processor will automatically end the top-level span
-   * when all direct child spans have ended.
+   * If `true` (the default), the top-level span is automatically ended when
+   * the wrapped function returns or throws. Set to `false` to manage span
+   * lifetime manually via `ctx.onComplete`.
    */
   autoEndRoot?: boolean;
 };
@@ -47,7 +49,7 @@ export type WrapAgentOptions = {
  * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument and the call-time input as its second.
  * @param options - Configuration for the agent trace.
  * @param options.isExperiment - Mark this run as an experiment in Lemma.
- * @param options.autoEndRoot - Enable processor-driven automatic ending of the top-level span after direct children have ended.
+ * @param options.autoEndRoot - Automatically end the top-level span when the wrapped function returns or throws (default: `true`). Set to `false` to end manually via `ctx.onComplete`.
  * @returns An async function that accepts an `input`, executes `fn` inside a traced context, and returns `{ result, runId, span }`.
  */
 export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext: TraceContext, input: Input) => any, options?: WrapAgentOptions) {
@@ -57,27 +59,29 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
     // Generate a unique run ID and open a new span for this agent invocation
     const runId = uuidv4();
+    const autoEndRoot = options?.autoEndRoot !== false; // default true
     const span = tracer.startSpan("ai.agent.run", {
       attributes: {
         "ai.agent.name": agentName,
         "lemma.run_id": runId,
         "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
-        "lemma.auto_end_root": options?.autoEndRoot === true,
+        "lemma.auto_end_root": autoEndRoot,
       },
     }, ROOT_CONTEXT);
 
     // Propagate the span as the active context so child spans are nested correctly
     const ctx = trace.setSpan(ROOT_CONTEXT, span);
-    const autoEndRoot = options?.autoEndRoot === true;
     let rootEnded = false;
 
     try {
       return await context.with(ctx, async () => {
         const onComplete = (_result: unknown): boolean => {
-          if (autoEndRoot || rootEnded) return false;
-          rootEnded = true;
-          span.end();
-          return true;
+          if (!autoEndRoot && !rootEnded) {
+            rootEnded = true;
+            span.end();
+            return true;
+          }
+          return false;
         };
 
         const recordError = (error: unknown) => {
@@ -87,12 +91,22 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
         const result = await fn.call(this, { span, runId, onComplete, recordError }, input);
 
+        // Auto-end the span if autoEndRoot is enabled and onComplete hasn't ended it yet
+        if (autoEndRoot && !rootEnded) {
+          rootEnded = true;
+          span.end();
+        }
+
         return { result, runId, span };
       });
     } catch (err) {
-      // Record the exception on the span and mark it as errored
+      // Record the exception on the span, mark it as errored, and end it
       span.recordException(err as Error);
       span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
+      if (!rootEnded) {
+        rootEnded = true;
+        span.end();
+      }
 
       throw err;
     }

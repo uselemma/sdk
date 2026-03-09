@@ -68,7 +68,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
-    assert tracer.last_attributes["lemma.auto_end_root"] is False
+    assert tracer.last_attributes["lemma.auto_end_root"] is True
 
     wrapped_local = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=True)
     wrapped_local("hello")
@@ -83,19 +83,44 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
 
-    wrapped_auto_end = wrap_agent(
+    wrapped_auto_end_off = wrap_agent(
         "demo-agent",
         lambda _ctx, value: value,
-        auto_end_root=True,
+        auto_end_root=False,
     )
-    wrapped_auto_end("hello")
+    wrapped_auto_end_off("hello")
     assert tracer.last_attributes is not None
-    assert tracer.last_attributes["lemma.auto_end_root"] is True
+    assert tracer.last_attributes["lemma.auto_end_root"] is False
 
     disable_experiment_mode()
 
 
-def test_on_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
+def test_auto_end_root_true_by_default_ends_span(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
+    _, _, span = wrapped("hello")
+    assert span.ended is True
+
+
+def test_auto_end_root_true_on_complete_returns_false_span_still_ends(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    results = []
+
+    def handler(ctx, value):
+        results.append(ctx.on_complete("done"))
+        return value
+
+    wrapped = wrap_agent("demo-agent", handler)
+    _, _, span = wrapped("hello")
+    assert results[0] is False
+    assert span.ended is True
+
+
+def test_on_complete_ends_span_when_auto_end_root_is_disabled(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
@@ -108,14 +133,32 @@ def test_on_complete_only_ends_when_auto_end_root_is_disabled(monkeypatch):
     assert ended_manual is True
     assert span_manual.ended is True
 
-    wrapped_auto = wrap_agent(
-        "demo-agent",
-        lambda ctx, value: (ctx.on_complete("done"), value),
-        auto_end_root=True,
-    )
-    (ended_auto, _), _, span_auto = wrapped_auto("hello")
-    assert ended_auto is False
-    assert span_auto.ended is False
+
+def test_auto_end_root_false_no_on_complete_span_not_ended(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value, auto_end_root=False)
+    _, _, span = wrapped("hello")
+    assert span.ended is False
+
+
+def test_on_complete_called_twice_ends_span_only_once(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    results = []
+
+    def handler(ctx, value):
+        results.append(ctx.on_complete("a"))
+        results.append(ctx.on_complete("b"))
+        return value
+
+    wrapped = wrap_agent("demo-agent", handler, auto_end_root=False)
+    _, _, span = wrapped("hello")
+    assert results == [True, False]
+    # ended once by on_complete, not re-ended by wrapper (auto_end_root=False)
+    assert span.ended is True
 
 
 async def test_wrap_agent_async_agent(monkeypatch):
@@ -188,6 +231,7 @@ def test_wrap_agent_sync_error_path(monkeypatch):
     assert len(spans_created[0].record_exception_calls) == 1
     assert "sync boom" in str(spans_created[0].record_exception_calls[0])
     assert len(spans_created[0].set_status_calls) == 1
+    assert spans_created[0].ended is True
 
 
 async def test_wrap_agent_async_error_path(monkeypatch):
@@ -213,3 +257,4 @@ async def test_wrap_agent_async_error_path(monkeypatch):
     assert len(spans_created) == 1
     assert len(spans_created[0].record_exception_calls) == 1
     assert "async boom" in str(spans_created[0].record_exception_calls[0])
+    assert spans_created[0].ended is True
