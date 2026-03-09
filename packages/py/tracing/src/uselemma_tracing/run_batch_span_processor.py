@@ -7,6 +7,7 @@ from typing import Any
 from opentelemetry.context import Context
 from opentelemetry.sdk.trace import ReadableSpan, Span
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult, SpanProcessor
+from .debug_mode import _lemma_debug
 
 
 class RunBatchSpanProcessor(SpanProcessor):
@@ -36,6 +37,7 @@ class RunBatchSpanProcessor(SpanProcessor):
                 if self._is_auto_end_enabled(span):
                     self._auto_end_enabled_runs.add(run_id)
                 self._direct_child_count_by_run_id[run_id] = 0
+            _lemma_debug("processor", "on_start: top-level run span", span_id=span_id, run_id=run_id, auto_end=run_id in self._auto_end_enabled_runs)
             return
 
         parent = getattr(span, "parent", None)
@@ -56,6 +58,7 @@ class RunBatchSpanProcessor(SpanProcessor):
             self._span_id_to_run_id[span_id] = run_id
 
         span.set_attribute("lemma.run_id", run_id)
+        _lemma_debug("processor", "on_start: child span", span_name=span.name, span_id=span_id, run_id=run_id)
 
     def on_end(self, span: ReadableSpan) -> None:
         span_id = span.context.span_id
@@ -81,6 +84,7 @@ class RunBatchSpanProcessor(SpanProcessor):
                     self._direct_child_count_by_run_id.get(direct_child_run_id, 0) - 1,
                 )
                 self._direct_child_count_by_run_id[direct_child_run_id] = next_count
+                _lemma_debug("processor", "on_end: direct child ended", span_name=span.name, span_id=span_id, run_id=direct_child_run_id, remaining_children=next_count)
                 if (
                     next_count == 0
                     and direct_child_run_id not in self._ended_runs
@@ -89,6 +93,10 @@ class RunBatchSpanProcessor(SpanProcessor):
                     top_level_span_to_auto_end = self._top_level_span_by_run_id.pop(
                         direct_child_run_id, None
                     )
+                    if top_level_span_to_auto_end is not None:
+                        _lemma_debug("processor", "on_end: triggering auto-end of top-level span", run_id=direct_child_run_id)
+
+            _lemma_debug("processor", "on_end: span ended", span_name=span.name, span_id=span_id, run_id=run_id, is_top_level=is_top_level_run, skipped=should_skip_export)
 
             if not should_skip_export:
                 self._batches.setdefault(run_id, []).append(span)
@@ -109,10 +117,12 @@ class RunBatchSpanProcessor(SpanProcessor):
 
             self._shutdown = True
 
+        _lemma_debug("processor", "shutdown called")
         self.force_flush()
         self._exporter.shutdown()
 
     def force_flush(self, timeout_millis: int = 30000) -> bool:
+        _lemma_debug("processor", "force_flush called")
         with self._lock:
             run_ids = list(self._batches.keys())
 
@@ -137,6 +147,7 @@ class RunBatchSpanProcessor(SpanProcessor):
         if not batch:
             return
 
+        _lemma_debug("processor", "exporting batch", run_id=run_id, span_count=len(batch), force=force)
         result = self._exporter.export(batch)
         if result in (None, SpanExportResult.SUCCESS):
             return

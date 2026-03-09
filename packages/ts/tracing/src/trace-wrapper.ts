@@ -1,5 +1,6 @@
 import { context, ROOT_CONTEXT, trace, Span } from "@opentelemetry/api";
 import { v4 as uuidv4 } from "uuid";
+import { lemmaDebug } from "./debug-mode";
 import { isExperimentModeEnabled } from "./experiment-mode";
 
 export type TraceContext = {
@@ -69,6 +70,8 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
       },
     }, ROOT_CONTEXT);
 
+    lemmaDebug("trace-wrapper", "span started", { agentName, runId, autoEndRoot });
+
     // Propagate the span as the active context so child spans are nested correctly
     const ctx = trace.setSpan(ROOT_CONTEXT, span);
     let rootEnded = false;
@@ -79,8 +82,10 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
           if (!autoEndRoot && !rootEnded) {
             rootEnded = true;
             span.end();
+            lemmaDebug("trace-wrapper", "span ended via onComplete", { runId });
             return true;
           }
+          lemmaDebug("trace-wrapper", "onComplete called but span not ended (autoEndRoot active or already ended)", { runId });
           return false;
         };
 
@@ -95,6 +100,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
         if (autoEndRoot && !rootEnded) {
           rootEnded = true;
           span.end();
+          lemmaDebug("trace-wrapper", "span auto-ended after fn returned", { runId });
         }
 
         return { result, runId, span };
@@ -106,6 +112,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
       if (!rootEnded) {
         rootEnded = true;
         span.end();
+        lemmaDebug("trace-wrapper", "span ended on error", { runId, error: String(err) });
       }
 
       throw err;

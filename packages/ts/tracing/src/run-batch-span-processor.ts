@@ -6,6 +6,7 @@ import {
   type SpanExporter,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base";
+import { lemmaDebug } from "./debug-mode";
 
 type RunId = string;
 type SpanId = string;
@@ -39,6 +40,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
         this.autoEndEnabledRuns.add(runId);
       }
       this.directChildCountByRunId.set(runId, 0);
+      lemmaDebug("processor", "onStart: top-level run span", { spanId, runId, autoEnd: this.autoEndEnabledRuns.has(runId) });
       return;
     }
 
@@ -55,6 +57,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     this.spanIdToRunId.set(spanId, runId);
     span.setAttribute("lemma.run_id", runId);
+    lemmaDebug("processor", "onStart: child span", { spanName: span.name, spanId, runId });
   }
 
   onEnd(span: ReadableSpan): void {
@@ -76,6 +79,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       const currentCount = this.directChildCountByRunId.get(directChildRunId) ?? 0;
       const nextCount = Math.max(0, currentCount - 1);
       this.directChildCountByRunId.set(directChildRunId, nextCount);
+      lemmaDebug("processor", "onEnd: direct child ended", { spanName: span.name, spanId, runId: directChildRunId, remainingChildren: nextCount });
       if (
         nextCount === 0 &&
         !this.endedRuns.has(directChildRunId) &&
@@ -84,9 +88,12 @@ export class RunBatchSpanProcessor implements SpanProcessor {
         topLevelSpanToAutoEnd = this.topLevelSpanByRunId.get(directChildRunId);
         if (topLevelSpanToAutoEnd) {
           this.topLevelSpanByRunId.delete(directChildRunId);
+          lemmaDebug("processor", "onEnd: triggering auto-end of top-level span", { runId: directChildRunId });
         }
       }
     }
+
+    lemmaDebug("processor", "onEnd: span ended", { spanName: span.name, spanId, runId, isTopLevelRun, skipped: shouldSkipExport });
 
     if (!shouldSkipExport) {
       const batch = this.batches.get(runId);
@@ -107,6 +114,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   }
 
   async forceFlush(): Promise<void> {
+    lemmaDebug("processor", "forceFlush called");
     const runIds = [...this.batches.keys()];
     await Promise.all(runIds.map((runId) => this.exportRunBatch(runId, true)));
     if (this.exporter.forceFlush) {
@@ -117,6 +125,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
   async shutdown(): Promise<void> {
     if (this.isShutdown) return;
 
+    lemmaDebug("processor", "shutdown called");
     this.isShutdown = true;
     await this.forceFlush();
     this.exporter.shutdown();
@@ -164,6 +173,7 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     if (!batch || batch.length === 0) return;
 
+    lemmaDebug("processor", "exporting batch", { runId, spanCount: batch.length, force });
     await new Promise<void>((resolve) => {
       this.exporter.export(batch, () => resolve());
     });

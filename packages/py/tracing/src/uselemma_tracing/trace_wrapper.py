@@ -7,6 +7,7 @@ from typing import Any, Callable, TypeVar
 from opentelemetry import context, trace
 from opentelemetry.context import Context
 from opentelemetry.trace import Span, StatusCode
+from .debug_mode import _lemma_debug
 from .experiment_mode import is_experiment_mode_enabled
 
 T = TypeVar("T")
@@ -34,9 +35,11 @@ class TraceContext:
         top-level span and returns ``True``.
         """
         if self.auto_end_root or self._root_ended:
+            _lemma_debug("trace-wrapper", "on_complete called but span not ended (auto_end_root active or already ended)", run_id=self.run_id)
             return False
         self._root_ended = True
         self.span.end()
+        _lemma_debug("trace-wrapper", "span ended via on_complete", run_id=self.run_id)
         return True
 
     def record_error(self, error: Any) -> None:
@@ -100,6 +103,7 @@ def wrap_agent(
                 "lemma.auto_end_root": auto_end_root,
             },
         )
+        _lemma_debug("trace-wrapper", "span started", agent_name=agent_name, run_id=run_id, auto_end_root=auto_end_root)
         return span, run_id
 
     async def _wrapped_async(input: Input) -> tuple[T, str, Span]:
@@ -125,6 +129,7 @@ def wrap_agent(
             if auto_end_root and not trace_ctx._root_ended:
                 trace_ctx._root_ended = True
                 span.end()
+                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
 
             return result, run_id, span
         except BaseException as exc:
@@ -133,6 +138,7 @@ def wrap_agent(
             if not trace_ctx._root_ended:
                 trace_ctx._root_ended = True
                 span.end()
+                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
             raise
         finally:
             context.detach(token)
@@ -154,6 +160,7 @@ def wrap_agent(
             if auto_end_root and not trace_ctx._root_ended:
                 trace_ctx._root_ended = True
                 span.end()
+                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
 
             return result, run_id, span
         except BaseException as exc:
@@ -162,6 +169,7 @@ def wrap_agent(
             if not trace_ctx._root_ended:
                 trace_ctx._root_ended = True
                 span.end()
+                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
             raise
         finally:
             context.detach(token)
