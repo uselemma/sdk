@@ -15,8 +15,8 @@ export function isDebugModeEnabled(): boolean {
 export function lemmaDebug(prefix: string, msg: string, data?: Record<string, unknown>): void {
   if (!isDebugModeEnabled()) return;
   if (data !== undefined) {
-    console.log(`[lemma:${prefix}] ${msg}`, data);
+    console.log(`[LEMMA:${prefix}] ${msg}`, data);
   } else {
-    console.log(`[lemma:${prefix}] ${msg}`);
+    console.log(`[LEMMA:${prefix}] ${msg}`);
   }
 }

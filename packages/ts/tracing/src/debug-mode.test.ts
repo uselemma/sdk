@@ -48,7 +48,7 @@ describe("debug-mode", () => {
 
     lemmaDebug("trace-wrapper", "span started", { runId: "abc" });
 
-    expect(spy).toHaveBeenCalledWith("[lemma:trace-wrapper] span started", { runId: "abc" });
+    expect(spy).toHaveBeenCalledWith("[LEMMA:trace-wrapper] span started", { runId: "abc" });
     spy.mockRestore();
   });
 
@@ -58,7 +58,7 @@ describe("debug-mode", () => {
 
     lemmaDebug("processor", "shutdown called");
 
-    expect(spy).toHaveBeenCalledWith("[lemma:processor] shutdown called");
+    expect(spy).toHaveBeenCalledWith("[LEMMA:processor] shutdown called");
     spy.mockRestore();
   });
 
@@ -88,7 +88,7 @@ describe("wrapAgent debug logging", () => {
     lemmaDebug("trace-wrapper", "span started", { agentName: "test", runId: "xyz" });
 
     expect(spy).toHaveBeenCalledWith(
-      "[lemma:trace-wrapper] span started",
+      "[LEMMA:trace-wrapper] span started",
       { agentName: "test", runId: "xyz" }
     );
 

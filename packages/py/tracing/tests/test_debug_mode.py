@@ -80,14 +80,14 @@ class TestDebugMode:
         enable_debug_mode()
         _lemma_debug("trace-wrapper", "span started", run_id="abc")
         out = capsys.readouterr().out
-        assert "[lemma:trace-wrapper] span started" in out
+        assert "[LEMMA:trace-wrapper] span started" in out
         assert "abc" in out
 
     def test_lemma_debug_logs_without_data(self, capsys):
         enable_debug_mode()
         _lemma_debug("processor", "shutdown called")
         out = capsys.readouterr().out
-        assert "[lemma:processor] shutdown called" in out
+        assert "[LEMMA:processor] shutdown called" in out
 
     def test_lemma_debug_silent_when_disabled(self, capsys):
         _lemma_debug("trace-wrapper", "span started", run_id="abc")
@@ -114,7 +114,7 @@ class TestWrapAgentDebugLogging:
         wrapped("hello")
 
         out = capsys.readouterr().out
-        assert "[lemma:trace-wrapper] span started" in out
+        assert "[LEMMA:trace-wrapper] span started" in out
         assert "test-agent" in out
 
     def test_no_logs_when_debug_disabled(self, monkeypatch, capsys):
@@ -161,4 +161,4 @@ class TestWrapAgentDebugLogging:
         await wrapped("hello")
 
         out = capsys.readouterr().out
-        assert "[lemma:trace-wrapper] span started" in out
+        assert "[LEMMA:trace-wrapper] span started" in out

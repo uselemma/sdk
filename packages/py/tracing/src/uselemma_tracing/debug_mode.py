@@ -23,6 +23,6 @@ def _lemma_debug(prefix: str, msg: str, **data: object) -> None:
     if not is_debug_mode_enabled():
         return
     if data:
-        print(f"[lemma:{prefix}] {msg}", data)
+        print(f"[LEMMA:{prefix}] {msg}", data)
     else:
-        print(f"[lemma:{prefix}] {msg}")
+        print(f"[LEMMA:{prefix}] {msg}")
