@@ -54,6 +54,14 @@ describe("wrapAgent", () => {
     );
   });
 
+  it("does not set lemma.auto_end_root on span attributes", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    await wrapped("x");
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.auto_end_root"]).toBeUndefined();
+  });
+
   it("sets ai.agent.name attribute", async () => {
     const wrapped = wrapAgent("my-agent", async (_ctx, v) => v);
     await wrapped("x");
@@ -97,96 +105,22 @@ describe("wrapAgent", () => {
     expect(call[1].attributes["lemma.is_experiment"]).toBe(true);
   });
 
-  it("lemma.auto_end_root is true by default", async () => {
+  it("span ends when fn returns", async () => {
     const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
-    await wrapped("x");
+    await wrapped("hello");
 
-    const call = mockStartSpan.mock.calls[0];
-    expect(call[1].attributes["lemma.auto_end_root"]).toBe(true);
+    expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("lemma.auto_end_root is false when autoEndRoot: false", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v, {
-      autoEndRoot: false,
+  it("onComplete sets output; return value ignored for output when onComplete ran", async () => {
+    const wrapped = wrapAgent("demo-agent", async (ctx) => {
+      ctx.onComplete("done");
+      return "ok";
     });
-    await wrapped("x");
-
-    const call = mockStartSpan.mock.calls[0];
-    expect(call[1].attributes["lemma.auto_end_root"]).toBe(false);
-  });
-
-  it("autoEndRoot: true (default) - span auto-ends when fn returns", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
-    await wrapped("hello");
-
-    expect(mockEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("autoEndRoot: true (default) - onComplete returns false, span still auto-ends", async () => {
-    let onCompleteReturn: boolean | undefined;
-    const wrapped = wrapAgent(
-      "demo-agent",
-      async (ctx) => {
-        onCompleteReturn = ctx.onComplete("done");
-        return "ok";
-      }
-    );
 
     await wrapped("hello");
 
-    expect(onCompleteReturn).toBe(false);
-    expect(mockEnd).toHaveBeenCalledTimes(1);
-  });
-
-  it("autoEndRoot: false - onComplete ends span and returns true", async () => {
-    let onCompleteReturn: boolean | undefined;
-    const wrapped = wrapAgent(
-      "demo-agent",
-      async (ctx) => {
-        onCompleteReturn = ctx.onComplete("done");
-        return "ok";
-      },
-      { autoEndRoot: false }
-    );
-
-    const out = await wrapped("hello");
-
-    expect(out.result).toBe("ok");
-    expect(out.runId).toBeDefined();
-    expect(out.span).toBeDefined();
-    expect(onCompleteReturn).toBe(true);
-    expect(mockEnd).toHaveBeenCalledTimes(1);
     expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"done"');
-  });
-
-  it("autoEndRoot: false - span not ended if onComplete not called", async () => {
-    const wrapped = wrapAgent(
-      "demo-agent",
-      async (_ctx, v) => v,
-      { autoEndRoot: false }
-    );
-
-    await wrapped("hello");
-
-    expect(mockEnd).not.toHaveBeenCalled();
-  });
-
-  it("autoEndRoot: false - onComplete called twice ends span only once", async () => {
-    const results: boolean[] = [];
-    const wrapped = wrapAgent(
-      "demo-agent",
-      async (ctx) => {
-        results.push(ctx.onComplete("a"));
-        results.push(ctx.onComplete("b"));
-        return "ok";
-      },
-      { autoEndRoot: false }
-    );
-
-    await wrapped("x");
-
-    expect(results[0]).toBe(true);
-    expect(results[1]).toBe(false);
     expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 

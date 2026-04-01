@@ -9,11 +9,11 @@ export type TraceContext = {
   /** Unique identifier for this agent run. */
   runId: string;
   /**
-   * Signal the run is complete. When `autoEndRoot` is enabled (the default),
-   * this is a no-op and returns `false` — the span is ended automatically.
-   * When `autoEndRoot` is disabled, this ends the top-level span and returns `true`.
+   * Record the run output. Sets `ai.agent.output` on the span — call this
+   * before returning to store a specific value. If omitted, the function's
+   * return value is captured automatically.
    */
-  onComplete: (result: unknown) => boolean;
+  onComplete: (result: unknown) => void;
   /** Record an error on the span. Marks the span as errored. */
   recordError: (error: unknown) => void;
 };
@@ -21,12 +21,6 @@ export type TraceContext = {
 export type WrapAgentOptions = {
   /** Mark this run as an experiment in Lemma. */
   isExperiment?: boolean;
-  /**
-   * If `true` (the default), the top-level span is automatically ended when
-   * the wrapped function returns or throws. Set to `false` to manage span
-   * lifetime manually via `ctx.onComplete`.
-   */
-  autoEndRoot?: boolean;
 };
 
 /**
@@ -37,7 +31,8 @@ export type WrapAgentOptions = {
  * agent metadata (name, run ID, experiment flag), and handles error recording.
  *
  * `ai.agent.input` and `ai.agent.output` are set as JSON strings for Lemma
- * ingestion and UI.
+ * ingestion and UI. The span ends automatically when the wrapped function
+ * returns or throws.
  *
  * @example
  * const myAgent = wrapAgent<{ topic: string }>(
@@ -53,46 +48,34 @@ export type WrapAgentOptions = {
  * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument and the call-time input as its second.
  * @param options - Configuration for the agent trace.
  * @param options.isExperiment - Mark this run as an experiment in Lemma.
- * @param options.autoEndRoot - Automatically end the top-level span when the wrapped function returns or throws (default: `true`). Set to `false` to end manually via `ctx.onComplete`.
  * @returns An async function that accepts an `input`, executes `fn` inside a traced context, and returns `{ result, runId, span }`.
  */
 export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext: TraceContext, input: Input) => any, options?: WrapAgentOptions) {
   const wrappedFunction = async function (this: any, input: Input) {
-    // Obtain the Lemma tracer from the global OTel provider
     const tracer = trace.getTracer("lemma");
-
-    // Generate a unique run ID and open a new span for this agent invocation
     const runId = uuidv4();
-    const autoEndRoot = options?.autoEndRoot !== false; // default true
+
     const span = tracer.startSpan("ai.agent.run", {
       attributes: {
         "ai.agent.name": agentName,
         "lemma.run_id": runId,
         "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
-        "lemma.auto_end_root": autoEndRoot,
       },
     }, ROOT_CONTEXT);
 
     span.setAttribute("ai.agent.input", JSON.stringify(input) ?? "null");
 
-    lemmaDebug("trace-wrapper", "span started", { agentName, runId, autoEndRoot });
+    lemmaDebug("trace-wrapper", "span started", { agentName, runId });
 
-    // Propagate the span as the active context so child spans are nested correctly
     const ctx = trace.setSpan(ROOT_CONTEXT, span);
-    let rootEnded = false;
+    let outputSet = false;
 
     try {
       return await context.with(ctx, async () => {
-        const onComplete = (resultFromComplete: unknown): boolean => {
-          if (!autoEndRoot && !rootEnded) {
-            span.setAttribute("ai.agent.output", JSON.stringify(resultFromComplete) ?? "null");
-            rootEnded = true;
-            span.end();
-            lemmaDebug("trace-wrapper", "span ended via onComplete", { runId });
-            return true;
-          }
-          lemmaDebug("trace-wrapper", "onComplete called but span not ended (autoEndRoot active or already ended)", { runId });
-          return false;
+        const onComplete = (result: unknown): void => {
+          span.setAttribute("ai.agent.output", JSON.stringify(result) ?? "null");
+          outputSet = true;
+          lemmaDebug("trace-wrapper", "onComplete called", { runId });
         };
 
         const recordError = (error: unknown) => {
@@ -102,26 +85,20 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
         const result = await fn.call(this, { span, runId, onComplete, recordError }, input);
 
-        // Auto-end the span if autoEndRoot is enabled and onComplete hasn't ended it yet
-        if (autoEndRoot && !rootEnded) {
+        if (!outputSet) {
           span.setAttribute("ai.agent.output", JSON.stringify(result) ?? "null");
-          rootEnded = true;
-          span.end();
-          lemmaDebug("trace-wrapper", "span auto-ended after fn returned", { runId });
         }
+
+        span.end();
+        lemmaDebug("trace-wrapper", "span ended after fn returned", { runId });
 
         return { result, runId, span };
       });
     } catch (err) {
-      // Record the exception on the span, mark it as errored, and end it
       span.recordException(err as Error);
       span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
-      if (!rootEnded) {
-        rootEnded = true;
-        span.end();
-        lemmaDebug("trace-wrapper", "span ended on error", { runId, error: String(err) });
-      }
-
+      span.end();
+      lemmaDebug("trace-wrapper", "span ended on error", { runId, error: String(err) });
       throw err;
     }
   };

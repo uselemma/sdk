@@ -126,7 +126,7 @@ class TestWrapAgentDebugLogging:
         out = capsys.readouterr().out
         assert out == ""
 
-    def test_logs_auto_end_when_debug_enabled(self, monkeypatch, capsys):
+    def test_logs_success_end_when_debug_enabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
         enable_debug_mode()
 
@@ -134,7 +134,7 @@ class TestWrapAgentDebugLogging:
         wrapped("hello")
 
         out = capsys.readouterr().out
-        assert "auto-ended" in out
+        assert "span ended after fn returned" in out
 
     def test_logs_error_end_when_debug_enabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())

@@ -68,7 +68,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
-    assert tracer.last_attributes["lemma.auto_end_root"] is True
+    assert "lemma.auto_end_root" not in tracer.last_attributes
 
     wrapped_local = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=True)
     wrapped_local("hello")
@@ -83,19 +83,10 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
 
-    wrapped_auto_end_off = wrap_agent(
-        "demo-agent",
-        lambda _ctx, value: value,
-        auto_end_root=False,
-    )
-    wrapped_auto_end_off("hello")
-    assert tracer.last_attributes is not None
-    assert tracer.last_attributes["lemma.auto_end_root"] is False
-
     disable_experiment_mode()
 
 
-def test_auto_end_root_true_by_default_ends_span(monkeypatch):
+def test_span_ends_when_fn_returns(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
@@ -104,60 +95,32 @@ def test_auto_end_root_true_by_default_ends_span(monkeypatch):
     assert span.ended is True
 
 
-def test_auto_end_root_true_on_complete_returns_false_span_still_ends(monkeypatch):
+def test_on_complete_sets_output_span_still_ends_once(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    results = []
-
     def handler(ctx, value):
-        results.append(ctx.on_complete("done"))
+        ctx.on_complete("done")
         return value
 
     wrapped = wrap_agent("demo-agent", handler)
     _, _, span = wrapped("hello")
-    assert results[0] is False
+    assert span.attributes.get("ai.agent.output") == '"done"'
     assert span.ended is True
 
 
-def test_on_complete_ends_span_when_auto_end_root_is_disabled(monkeypatch):
+def test_on_complete_called_twice_second_output_wins(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
-
-    wrapped_manual = wrap_agent(
-        "demo-agent",
-        lambda ctx, value: (ctx.on_complete("done"), value),
-        auto_end_root=False,
-    )
-    (ended_manual, _), _, span_manual = wrapped_manual("hello")
-    assert ended_manual is True
-    assert span_manual.ended is True
-
-
-def test_auto_end_root_false_no_on_complete_span_not_ended(monkeypatch):
-    tracer = _FakeTracer()
-    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
-
-    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value, auto_end_root=False)
-    _, _, span = wrapped("hello")
-    assert span.ended is False
-
-
-def test_on_complete_called_twice_ends_span_only_once(monkeypatch):
-    tracer = _FakeTracer()
-    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
-
-    results = []
 
     def handler(ctx, value):
-        results.append(ctx.on_complete("a"))
-        results.append(ctx.on_complete("b"))
+        ctx.on_complete("a")
+        ctx.on_complete("b")
         return value
 
-    wrapped = wrap_agent("demo-agent", handler, auto_end_root=False)
+    wrapped = wrap_agent("demo-agent", handler)
     _, _, span = wrapped("hello")
-    assert results == [True, False]
-    # ended once by on_complete, not re-ended by wrapper (auto_end_root=False)
+    assert span.attributes.get("ai.agent.output") == '"b"'
     assert span.ended is True
 
 
