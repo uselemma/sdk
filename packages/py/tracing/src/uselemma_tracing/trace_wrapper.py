@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, overload
 
 from opentelemetry import context, trace
 from opentelemetry.context import Context
@@ -13,6 +13,9 @@ from .experiment_mode import is_experiment_mode_enabled
 
 T = TypeVar("T")
 Input = TypeVar("Input")
+
+# Sentinel for detecting whether auto_end_root was explicitly passed.
+_UNSET: Any = object()
 
 
 @dataclass
@@ -51,149 +54,12 @@ class TraceContext:
         self.span.set_status(StatusCode.ERROR)
 
 
-def wrap_agent(
-    agent_name: str,
-    fn: Callable[[TraceContext, Input], T],
-    *,
-    is_experiment: bool = False,
-    auto_end_root: bool = True,
-) -> Callable[[Input], tuple[T, str, Span]]:
-    """Wrap an agent function with OpenTelemetry tracing.
-
-    Creates a new span on every invocation, attaches agent metadata
-    (run ID, experiment flag), and handles error recording.
-
-    Sets ``ai.agent.input`` and ``ai.agent.output`` as JSON strings for Lemma ingestion.
-
-    Args:
-        agent_name: Human-readable name used as the span name.
-        fn: The agent function to wrap. Receives a :class:`TraceContext`
-            as its first argument and the call-time ``input`` as its second.
-        is_experiment: Mark this run as an experiment in Lemma.
-        auto_end_root: Automatically end the top-level span when the wrapped
-            function returns or throws (default: ``True``).  Set to ``False``
-            to manage span lifetime manually via :meth:`TraceContext.on_complete`.
-
-    Returns:
-        A wrapper that accepts an ``input``, calls *fn* inside a traced
-        context, and returns ``(result, run_id, span)``.
-
-    Example::
-
-        from typing import TypedDict
-
-        class AgentInput(TypedDict):
-            topic: str
-
-        async def handler(ctx: TraceContext, input: AgentInput) -> str:
-            result = await do_work(input["topic"])
-            return result
-
-        my_agent = wrap_agent("my-agent", handler)
-        await my_agent({"topic": "math"})
-    """
-
-    def _start_root_span(agent_input: Input) -> tuple[Span, str]:
-        tracer = trace.get_tracer("lemma")
-        run_id = str(uuid.uuid4())
-
-        span = tracer.start_span(
-            "ai.agent.run",
-            context=Context(),
-            attributes={
-                "ai.agent.name": agent_name,
-                "lemma.run_id": run_id,
-                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
-                "lemma.auto_end_root": auto_end_root,
-            },
-        )
-        span.set_attribute("ai.agent.input", json.dumps(agent_input, default=str))
-        _lemma_debug("trace-wrapper", "span started", agent_name=agent_name, run_id=run_id, auto_end_root=auto_end_root)
-        return span, run_id
-
-    async def _wrapped_async(input: Input) -> tuple[T, str, Span]:
-        import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
-
-        span, run_id = _start_root_span(input)
-
-        ctx = trace.set_span_in_context(span, Context())
-        token = context.attach(ctx)
-
-        try:
-            trace_ctx = TraceContext(
-                span=span,
-                run_id=run_id,
-                auto_end_root=auto_end_root,
-            )
-
-            if asyncio.iscoroutinefunction(fn):
-                result = await fn(trace_ctx, input)
-            else:
-                result = fn(trace_ctx, input)  # pragma: no cover
-
-            if auto_end_root and not trace_ctx._root_ended:
-                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
-
-            return result, run_id, span
-        except BaseException as exc:
-            span.record_exception(exc)
-            span.set_status(StatusCode.ERROR)
-            if not trace_ctx._root_ended:
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
-            raise
-        finally:
-            context.detach(token)
-
-    def _wrapped_sync(input: Input) -> tuple[T, str, Span]:
-        span, run_id = _start_root_span(input)
-
-        ctx = trace.set_span_in_context(span, Context())
-        token = context.attach(ctx)
-
-        try:
-            trace_ctx = TraceContext(
-                span=span,
-                run_id=run_id,
-                auto_end_root=auto_end_root,
-            )
-            result = fn(trace_ctx, input)
-
-            if auto_end_root and not trace_ctx._root_ended:
-                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
-
-            return result, run_id, span
-        except BaseException as exc:
-            span.record_exception(exc)
-            span.set_status(StatusCode.ERROR)
-            if not trace_ctx._root_ended:
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
-            raise
-        finally:
-            context.detach(token)
-
-    import asyncio
-
-    if asyncio.iscoroutinefunction(fn):
-        return _wrapped_async  # type: ignore[return-value]
-    return _wrapped_sync  # type: ignore[return-value]
-
-
 @dataclass
 class RunContext:
-    """Context object yielded by the :class:`lemma_run` context manager.
+    """Context object yielded by :func:`wrap_agent` when used as a context manager.
 
-    Unlike :class:`TraceContext`, this is not associated with ``auto_end_root`` —
-    the span always ends when the ``with`` / ``async with`` block exits.
+    Unlike :class:`TraceContext`, there is no ``auto_end_root`` concept — the span
+    always ends when the ``with`` / ``async with`` block exits.
     """
 
     span: Span
@@ -220,33 +86,8 @@ class RunContext:
         self.span.set_status(StatusCode.ERROR)
 
 
-class lemma_run:
-    """Context manager that opens a Lemma agent run span for the duration of the block.
-
-    Use this as a zero-refactor alternative to :func:`wrap_agent` when you want
-    to instrument existing code without extracting it into a separate function.
-
-    Supports both ``async with`` and ``with``.
-
-    Args:
-        agent_name: Human-readable name recorded as ``ai.agent.name``.
-        input: The run input. Serialized as ``ai.agent.input`` JSON attribute.
-        is_experiment: Mark this run as an experiment in Lemma.
-
-    Example (async)::
-
-        async with lemma_run("my-agent", input=user_message) as run:
-            response = await call_llm(user_message)
-            run.on_complete(response)
-
-        print(run.run_id)
-
-    Example (sync)::
-
-        with lemma_run("my-agent", input=user_message) as run:
-            response = call_llm(user_message)
-            run.on_complete(response)
-    """
+class _WrapAgentContextManager:
+    """Internal context manager returned by wrap_agent when called without fn."""
 
     def __init__(
         self,
@@ -300,8 +141,6 @@ class lemma_run:
             context.detach(self._token)
             self._token = None
 
-    # ---- sync ----------------------------------------------------------------
-
     def __enter__(self) -> RunContext:
         return self._start()
 
@@ -312,9 +151,7 @@ class lemma_run:
         exc_tb: object,
     ) -> bool:
         self._end(exc_val)
-        return False  # never suppress exceptions
-
-    # ---- async ---------------------------------------------------------------
+        return False
 
     async def __aenter__(self) -> RunContext:
         return self._start()
@@ -326,4 +163,181 @@ class lemma_run:
         exc_tb: object,
     ) -> bool:
         self._end(exc_val)
-        return False  # never suppress exceptions
+        return False
+
+
+# Backward-compatible alias exported for users who adopted the 2.12.0 API.
+lemma_run = _WrapAgentContextManager
+
+
+# ---------------------------------------------------------------------------
+# Overload signatures — used by type checkers only, not at runtime.
+# ---------------------------------------------------------------------------
+
+@overload
+def wrap_agent(
+    agent_name: str,
+    fn: Callable[[TraceContext, Input], T],
+    *,
+    is_experiment: bool = ...,
+    auto_end_root: bool = ...,
+) -> Callable[[Input], tuple[T, str, Span]]: ...
+
+
+@overload
+def wrap_agent(
+    agent_name: str,
+    *,
+    input: Any = ...,
+    is_experiment: bool = ...,
+) -> _WrapAgentContextManager: ...
+
+
+# ---------------------------------------------------------------------------
+# Implementation
+# ---------------------------------------------------------------------------
+
+def wrap_agent(
+    agent_name: str,
+    fn: Callable[[TraceContext, Input], T] | None = None,
+    *,
+    input: Any = None,
+    is_experiment: bool = False,
+    auto_end_root: Any = _UNSET,
+) -> Callable[[Input], tuple[T, str, Span]] | _WrapAgentContextManager:
+    """Wrap an agent function with OpenTelemetry tracing, or open a traced context block.
+
+    **Callable wrapper** (pass ``fn``): returns a traced version of your function.
+
+    **Context manager** (omit ``fn``): returns a context manager that opens a run span
+    for the duration of the ``with`` / ``async with`` block — no function extraction needed.
+
+    Args:
+        agent_name: Human-readable name recorded as ``ai.agent.name``.
+        fn: The agent function to wrap. When provided, ``wrap_agent`` returns a callable
+            wrapper. When omitted, it returns a context manager.
+        input: Run input (context manager mode only). Serialized as ``ai.agent.input``.
+        is_experiment: Mark this run as an experiment in Lemma.
+        auto_end_root: Callable mode only. If ``True`` (default), the root span ends
+            automatically when the wrapped function returns or throws. Set to ``False``
+            to end it manually via :meth:`TraceContext.on_complete`.
+
+    Returns:
+        A callable wrapper ``(input) -> (result, run_id, span)`` when ``fn`` is provided,
+        or a context manager yielding a :class:`RunContext` when ``fn`` is omitted.
+
+    Examples::
+
+        # Callable wrapper
+        async def run_agent(ctx: TraceContext, user_message: str) -> str:
+            result = await call_llm(user_message)
+            ctx.on_complete(result)
+            return result
+
+        wrapped = wrap_agent("my-agent", run_agent)
+        result, run_id, _ = await wrapped(user_message)
+
+        # Context manager — instrument in-place, no refactor needed
+        async with wrap_agent("my-agent", input=user_message) as run:
+            result = await call_llm(user_message)
+            run.on_complete(result)
+
+        print(run.run_id)
+    """
+    # ---- context manager path ----
+    if fn is None:
+        if auto_end_root is not _UNSET:
+            raise TypeError(
+                "auto_end_root is not supported when using wrap_agent as a context manager "
+                "(the span always ends when the with block exits). "
+                "Remove the auto_end_root argument, or pass a function as the second argument "
+                "to use wrap_agent as a callable wrapper."
+            )
+        return _WrapAgentContextManager(agent_name, input=input, is_experiment=is_experiment)
+
+    # ---- callable wrapper path ----
+    _auto_end_root: bool = True if auto_end_root is _UNSET else auto_end_root
+
+    def _start_root_span(agent_input: Input) -> tuple[Span, str]:
+        tracer = trace.get_tracer("lemma")
+        run_id = str(uuid.uuid4())
+
+        span = tracer.start_span(
+            "ai.agent.run",
+            context=Context(),
+            attributes={
+                "ai.agent.name": agent_name,
+                "lemma.run_id": run_id,
+                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
+                "lemma.auto_end_root": _auto_end_root,
+            },
+        )
+        span.set_attribute("ai.agent.input", json.dumps(agent_input, default=str))
+        _lemma_debug("trace-wrapper", "span started", agent_name=agent_name, run_id=run_id, auto_end_root=_auto_end_root)
+        return span, run_id
+
+    async def _wrapped_async(agent_input: Input) -> tuple[T, str, Span]:
+        import asyncio  # noqa: F811 – deferred so sync callers don't pay the import
+
+        span, run_id = _start_root_span(agent_input)
+        ctx = trace.set_span_in_context(span, Context())
+        token = context.attach(ctx)
+
+        try:
+            trace_ctx = TraceContext(span=span, run_id=run_id, auto_end_root=_auto_end_root)
+
+            if asyncio.iscoroutinefunction(fn):
+                result = await fn(trace_ctx, agent_input)
+            else:
+                result = fn(trace_ctx, agent_input)  # pragma: no cover
+
+            if _auto_end_root and not trace_ctx._root_ended:
+                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
+                trace_ctx._root_ended = True
+                span.end()
+                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
+
+            return result, run_id, span
+        except BaseException as exc:
+            span.record_exception(exc)
+            span.set_status(StatusCode.ERROR)
+            if not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
+                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
+            raise
+        finally:
+            context.detach(token)
+
+    def _wrapped_sync(agent_input: Input) -> tuple[T, str, Span]:
+        span, run_id = _start_root_span(agent_input)
+        ctx = trace.set_span_in_context(span, Context())
+        token = context.attach(ctx)
+
+        try:
+            trace_ctx = TraceContext(span=span, run_id=run_id, auto_end_root=_auto_end_root)
+            result = fn(trace_ctx, agent_input)
+
+            if _auto_end_root and not trace_ctx._root_ended:
+                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
+                trace_ctx._root_ended = True
+                span.end()
+                _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
+
+            return result, run_id, span
+        except BaseException as exc:
+            span.record_exception(exc)
+            span.set_status(StatusCode.ERROR)
+            if not trace_ctx._root_ended:
+                trace_ctx._root_ended = True
+                span.end()
+                _lemma_debug("trace-wrapper", "span ended on error", run_id=run_id, error=str(exc))
+            raise
+        finally:
+            context.detach(token)
+
+    import asyncio
+
+    if asyncio.iscoroutinefunction(fn):
+        return _wrapped_async  # type: ignore[return-value]
+    return _wrapped_sync  # type: ignore[return-value]
