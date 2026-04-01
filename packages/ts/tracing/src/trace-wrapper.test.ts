@@ -62,6 +62,14 @@ describe("wrapAgent", () => {
     expect(call[1].attributes["ai.agent.name"]).toBe("my-agent");
   });
 
+  it("sets ai.agent.input and ai.agent.output as JSON strings", async () => {
+    const wrapped = wrapAgent("my-agent", async (_ctx, v: string) => `out:${v}`);
+    await wrapped("hello");
+
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.input", '"hello"');
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"out:hello"');
+  });
+
   it("lemma.is_experiment is false by default", async () => {
     const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
     await wrapped("x");
@@ -148,6 +156,7 @@ describe("wrapAgent", () => {
     expect(out.span).toBeDefined();
     expect(onCompleteReturn).toBe(true);
     expect(mockEnd).toHaveBeenCalledTimes(1);
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"done"');
   });
 
   it("autoEndRoot: false - span not ended if onComplete not called", async () => {

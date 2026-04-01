@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
@@ -37,6 +38,7 @@ class TraceContext:
         if self.auto_end_root or self._root_ended:
             _lemma_debug("trace-wrapper", "on_complete called but span not ended (auto_end_root active or already ended)", run_id=self.run_id)
             return False
+        self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
         self._root_ended = True
         self.span.end()
         _lemma_debug("trace-wrapper", "span ended via on_complete", run_id=self.run_id)
@@ -60,6 +62,8 @@ def wrap_agent(
 
     Creates a new span on every invocation, attaches agent metadata
     (run ID, experiment flag), and handles error recording.
+
+    Sets ``ai.agent.input`` and ``ai.agent.output`` as JSON strings for Lemma ingestion.
 
     Args:
         agent_name: Human-readable name used as the span name.
@@ -89,7 +93,7 @@ def wrap_agent(
         await my_agent({"topic": "math"})
     """
 
-    def _start_root_span(input: Input) -> tuple[Span, str]:
+    def _start_root_span(agent_input: Input) -> tuple[Span, str]:
         tracer = trace.get_tracer("lemma")
         run_id = str(uuid.uuid4())
 
@@ -103,6 +107,7 @@ def wrap_agent(
                 "lemma.auto_end_root": auto_end_root,
             },
         )
+        span.set_attribute("ai.agent.input", json.dumps(agent_input, default=str))
         _lemma_debug("trace-wrapper", "span started", agent_name=agent_name, run_id=run_id, auto_end_root=auto_end_root)
         return span, run_id
 
@@ -127,6 +132,7 @@ def wrap_agent(
                 result = fn(trace_ctx, input)  # pragma: no cover
 
             if auto_end_root and not trace_ctx._root_ended:
+                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
                 trace_ctx._root_ended = True
                 span.end()
                 _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)
@@ -158,6 +164,7 @@ def wrap_agent(
             result = fn(trace_ctx, input)
 
             if auto_end_root and not trace_ctx._root_ended:
+                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
                 trace_ctx._root_ended = True
                 span.end()
                 _lemma_debug("trace-wrapper", "span auto-ended after fn returned", run_id=run_id)

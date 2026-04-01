@@ -36,6 +36,9 @@ export type WrapAgentOptions = {
  * The returned function creates a new root span on every invocation, attaches
  * agent metadata (name, run ID, experiment flag), and handles error recording.
  *
+ * `ai.agent.input` and `ai.agent.output` are set as JSON strings for Lemma
+ * ingestion and UI.
+ *
  * @example
  * const myAgent = wrapAgent<{ topic: string }>(
  *   'my-agent',
@@ -70,6 +73,8 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
       },
     }, ROOT_CONTEXT);
 
+    span.setAttribute("ai.agent.input", JSON.stringify(input) ?? "null");
+
     lemmaDebug("trace-wrapper", "span started", { agentName, runId, autoEndRoot });
 
     // Propagate the span as the active context so child spans are nested correctly
@@ -78,8 +83,9 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
     try {
       return await context.with(ctx, async () => {
-        const onComplete = (_result: unknown): boolean => {
+        const onComplete = (resultFromComplete: unknown): boolean => {
           if (!autoEndRoot && !rootEnded) {
+            span.setAttribute("ai.agent.output", JSON.stringify(resultFromComplete) ?? "null");
             rootEnded = true;
             span.end();
             lemmaDebug("trace-wrapper", "span ended via onComplete", { runId });
@@ -98,6 +104,7 @@ export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext:
 
         // Auto-end the span if autoEndRoot is enabled and onComplete hasn't ended it yet
         if (autoEndRoot && !rootEnded) {
+          span.setAttribute("ai.agent.output", JSON.stringify(result) ?? "null");
           rootEnded = true;
           span.end();
           lemmaDebug("trace-wrapper", "span auto-ended after fn returned", { runId });
