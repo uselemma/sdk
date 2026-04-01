@@ -54,14 +54,6 @@ describe("wrapAgent", () => {
     );
   });
 
-  it("does not set lemma.auto_end_root on span attributes", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
-    await wrapped("x");
-
-    const call = mockStartSpan.mock.calls[0];
-    expect(call[1].attributes["lemma.auto_end_root"]).toBeUndefined();
-  });
-
   it("sets ai.agent.name attribute", async () => {
     const wrapped = wrapAgent("my-agent", async (_ctx, v) => v);
     await wrapped("x");

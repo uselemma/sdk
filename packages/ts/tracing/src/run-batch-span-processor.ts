@@ -14,9 +14,7 @@ type SpanId = string;
 export class RunBatchSpanProcessor implements SpanProcessor {
   private isShutdown = false;
   private spanIdToRunId = new Map<SpanId, RunId>();
-  private topLevelSpanByRunId = new Map<RunId, Span>();
   private topLevelSpanIdByRunId = new Map<RunId, SpanId>();
-  private autoEndEnabledRuns = new Set<RunId>();
   private directChildCountByRunId = new Map<RunId, number>();
   private directChildSpanIdToRunId = new Map<SpanId, RunId>();
   private batches = new Map<RunId, ReadableSpan[]>();
@@ -34,13 +32,9 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       const runId = this.getRunIdFromSpan(span) ?? randomUUID();
       span.setAttribute("lemma.run_id", runId);
       this.spanIdToRunId.set(spanId, runId);
-      this.topLevelSpanByRunId.set(runId, span);
       this.topLevelSpanIdByRunId.set(runId, spanId);
-      if (this.isAutoEndEnabled(span)) {
-        this.autoEndEnabledRuns.add(runId);
-      }
       this.directChildCountByRunId.set(runId, 0);
-      lemmaDebug("processor", "onStart: top-level run span", { spanId, runId, autoEnd: this.autoEndEnabledRuns.has(runId) });
+      lemmaDebug("processor", "onStart: top-level run span", { spanId, runId });
       return;
     }
 
@@ -72,7 +66,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     const isTopLevelRun = this.isTopLevelRun(span);
     const shouldSkipExport = this.shouldSkipExport(span);
-    let topLevelSpanToAutoEnd: Span | undefined;
     const directChildRunId = this.directChildSpanIdToRunId.get(spanId);
     if (directChildRunId) {
       this.directChildSpanIdToRunId.delete(spanId);
@@ -80,17 +73,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       const nextCount = Math.max(0, currentCount - 1);
       this.directChildCountByRunId.set(directChildRunId, nextCount);
       lemmaDebug("processor", "onEnd: direct child ended", { spanName: span.name, spanId, runId: directChildRunId, remainingChildren: nextCount });
-      if (
-        nextCount === 0 &&
-        !this.endedRuns.has(directChildRunId) &&
-        this.autoEndEnabledRuns.has(directChildRunId)
-      ) {
-        topLevelSpanToAutoEnd = this.topLevelSpanByRunId.get(directChildRunId);
-        if (topLevelSpanToAutoEnd) {
-          this.topLevelSpanByRunId.delete(directChildRunId);
-          lemmaDebug("processor", "onEnd: triggering auto-end of top-level span", { runId: directChildRunId });
-        }
-      }
     }
 
     lemmaDebug("processor", "onEnd: span ended", { spanName: span.name, spanId, runId, isTopLevelRun, skipped: shouldSkipExport });
@@ -103,11 +85,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
 
     if (isTopLevelRun) {
       this.endedRuns.add(runId);
-      this.topLevelSpanByRunId.delete(runId);
-    }
-
-    if (topLevelSpanToAutoEnd) {
-      topLevelSpanToAutoEnd.end();
     }
 
     void this.exportRunBatch(runId, false);
@@ -140,12 +117,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       .attributes;
     const runId = attributes?.["lemma.run_id"];
     return typeof runId === "string" && runId.length > 0 ? runId : undefined;
-  }
-
-  private isAutoEndEnabled(span: Span): boolean {
-    const attributes = (span as unknown as { attributes?: Record<string, unknown> })
-      .attributes;
-    return attributes?.["lemma.auto_end_root"] === true;
   }
 
   private getInstrumentationScopeName(span: Span | ReadableSpan): string | undefined {
@@ -195,8 +166,6 @@ export class RunBatchSpanProcessor implements SpanProcessor {
       }
     }
     this.topLevelSpanIdByRunId.delete(runId);
-    this.topLevelSpanByRunId.delete(runId);
-    this.autoEndEnabledRuns.delete(runId);
     this.directChildCountByRunId.delete(runId);
   }
 }

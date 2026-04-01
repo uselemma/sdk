@@ -82,24 +82,27 @@ describe("RunBatchSpanProcessor", () => {
     expect(exporter.exports[0].map((s) => s.spanId)).toContain("1");
   });
 
-  it("auto-ends root when last direct child ends", async () => {
+  it("does not end root span when a direct child ends — root lifecycle is owned by the tracer", async () => {
     const exporter = createExporter();
     const processor = new RunBatchSpanProcessor(exporter as any);
 
     const root = createFakeSpan("ai.agent.run", "1", {
-      attributes: { "lemma.run_id": "run-a", "lemma.auto_end_root": true },
+      attributes: { "lemma.run_id": "run-a" },
     });
     const child = createFakeSpan("ai.step", "2", { parentSpanId: "1" });
 
     processor.onStart(root as any, undefined as any);
     processor.onStart(child as any, undefined as any);
     processor.onEnd(child as any);
+
+    expect(root.ended).toBe(false);
+
     processor.onEnd(root as any);
 
     await new Promise((r) => setTimeout(r, 0));
 
     expect(exporter.exports.length).toBe(1);
-    expect(root.ended).toBe(true);
+    expect(root.ended).toBe(false);
   });
 
   it("skips next.js scoped spans from export", async () => {

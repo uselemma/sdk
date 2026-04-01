@@ -16,9 +16,7 @@ class RunBatchSpanProcessor(SpanProcessor):
         self._lock = threading.Lock()
         self._shutdown = False
         self._span_id_to_run_id: dict[int, str] = {}
-        self._top_level_span_by_run_id: dict[str, Span] = {}
         self._top_level_span_id_by_run_id: dict[str, int] = {}
-        self._auto_end_enabled_runs: set[str] = set()
         self._direct_child_count_by_run_id: dict[str, int] = {}
         self._direct_child_span_id_to_run_id: dict[int, str] = {}
         self._batches: dict[str, list[ReadableSpan]] = {}
@@ -32,12 +30,9 @@ class RunBatchSpanProcessor(SpanProcessor):
             span.set_attribute("lemma.run_id", run_id)
             with self._lock:
                 self._span_id_to_run_id[span_id] = run_id
-                self._top_level_span_by_run_id[run_id] = span
                 self._top_level_span_id_by_run_id[run_id] = span_id
-                if self._is_auto_end_enabled(span):
-                    self._auto_end_enabled_runs.add(run_id)
                 self._direct_child_count_by_run_id[run_id] = 0
-            _lemma_debug("processor", "on_start: top-level run span", span_id=span_id, run_id=run_id, auto_end=run_id in self._auto_end_enabled_runs)
+            _lemma_debug("processor", "on_start: top-level run span", span_id=span_id, run_id=run_id)
             return
 
         parent = getattr(span, "parent", None)
@@ -63,7 +58,6 @@ class RunBatchSpanProcessor(SpanProcessor):
     def on_end(self, span: ReadableSpan) -> None:
         span_id = span.context.span_id
         parent = getattr(span, "parent", None)
-        top_level_span_to_auto_end: Span | None = None
 
         with self._lock:
             run_id = self._span_id_to_run_id.get(span_id)
@@ -85,16 +79,6 @@ class RunBatchSpanProcessor(SpanProcessor):
                 )
                 self._direct_child_count_by_run_id[direct_child_run_id] = next_count
                 _lemma_debug("processor", "on_end: direct child ended", span_name=span.name, span_id=span_id, run_id=direct_child_run_id, remaining_children=next_count)
-                if (
-                    next_count == 0
-                    and direct_child_run_id not in self._ended_runs
-                    and direct_child_run_id in self._auto_end_enabled_runs
-                ):
-                    top_level_span_to_auto_end = self._top_level_span_by_run_id.pop(
-                        direct_child_run_id, None
-                    )
-                    if top_level_span_to_auto_end is not None:
-                        _lemma_debug("processor", "on_end: triggering auto-end of top-level span", run_id=direct_child_run_id)
 
             _lemma_debug("processor", "on_end: span ended", span_name=span.name, span_id=span_id, run_id=run_id, is_top_level=is_top_level_run, skipped=should_skip_export)
 
@@ -103,10 +87,6 @@ class RunBatchSpanProcessor(SpanProcessor):
 
             if is_top_level_run:
                 self._ended_runs.add(run_id)
-                self._top_level_span_by_run_id.pop(run_id, None)
-
-        if top_level_span_to_auto_end is not None:
-            top_level_span_to_auto_end.end()
 
         self._export_run_batch(run_id, force=False)
 
@@ -167,9 +147,7 @@ class RunBatchSpanProcessor(SpanProcessor):
         ]
         for span_id in stale_direct_child_span_ids:
             del self._direct_child_span_id_to_run_id[span_id]
-        self._top_level_span_by_run_id.pop(run_id, None)
         self._top_level_span_id_by_run_id.pop(run_id, None)
-        self._auto_end_enabled_runs.discard(run_id)
         self._direct_child_count_by_run_id.pop(run_id, None)
 
     def _has_no_open_direct_children_locked(self, run_id: str) -> bool:
@@ -195,10 +173,3 @@ class RunBatchSpanProcessor(SpanProcessor):
             return None
         value: Any = attributes.get(key)
         return value if isinstance(value, str) and value else None
-
-    @staticmethod
-    def _is_auto_end_enabled(span: Span) -> bool:
-        attributes = getattr(span, "attributes", None)
-        if not isinstance(attributes, Mapping):
-            return False
-        return attributes.get("lemma.auto_end_root") is True

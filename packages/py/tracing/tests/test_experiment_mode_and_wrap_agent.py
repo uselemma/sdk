@@ -68,7 +68,6 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
-    assert "lemma.auto_end_root" not in tracer.last_attributes
 
     wrapped_local = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=True)
     wrapped_local("hello")

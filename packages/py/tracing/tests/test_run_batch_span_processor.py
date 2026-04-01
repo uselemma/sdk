@@ -67,7 +67,7 @@ class _FakeExporter:
         return None
 
 
-def test_run_batch_auto_ends_root_once_direct_children_are_done():
+def test_batches_child_then_root_when_both_end():
     exporter = _FakeExporter()
     processor = RunBatchSpanProcessor(exporter)
 
@@ -75,7 +75,7 @@ def test_run_batch_auto_ends_root_once_direct_children_are_done():
         name="ai.agent.run",
         span_id=1,
         parent=None,
-        attributes={"lemma.run_id": "run-a", "lemma.auto_end_root": True},
+        attributes={"lemma.run_id": "run-a"},
     )
     child = _FakeSpan(name="ai.step", span_id=2, parent=_FakeParent(span_id=1))
 

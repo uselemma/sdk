@@ -43,7 +43,7 @@ def my_agent(ctx: TraceContext, user_message: str):
     ctx.on_complete(result)
     return result
 
-wrapped = wrap_agent("my-agent", my_agent, auto_end_root=True)
+wrapped = wrap_agent("my-agent", my_agent)
 result, run_id, span = wrapped("hello")
 ```
 

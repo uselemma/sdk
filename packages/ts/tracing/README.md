@@ -45,10 +45,9 @@ const wrappedFn = wrapAgent(
     onComplete(result);
     return result;
   },
-  { autoEndRoot: true },
 );
 
-const { result, runId } = await wrappedFn();
+const { result, runId } = await wrappedFn({ userMessage });
 ```
 
 ## Export Behavior
