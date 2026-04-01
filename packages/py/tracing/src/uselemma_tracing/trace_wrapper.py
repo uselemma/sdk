@@ -186,3 +186,144 @@ def wrap_agent(
     if asyncio.iscoroutinefunction(fn):
         return _wrapped_async  # type: ignore[return-value]
     return _wrapped_sync  # type: ignore[return-value]
+
+
+@dataclass
+class RunContext:
+    """Context object yielded by the :class:`lemma_run` context manager.
+
+    Unlike :class:`TraceContext`, this is not associated with ``auto_end_root`` —
+    the span always ends when the ``with`` / ``async with`` block exits.
+    """
+
+    span: Span
+    """The active OpenTelemetry span for this agent run."""
+
+    run_id: str
+    """Unique identifier for this agent run."""
+
+    _ended: bool = field(default=False, init=False, repr=False)
+
+    def on_complete(self, result: Any) -> None:
+        """Record the run output.
+
+        Sets ``ai.agent.output`` on the span. The span itself is ended by the
+        context manager when the ``with`` block exits, not by this call.
+        """
+        self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
+        _lemma_debug("trace-wrapper", "on_complete called (context manager)", run_id=self.run_id)
+
+    def record_error(self, error: Any) -> None:
+        """Record an error on the span. Marks the span as errored."""
+        exc = error if isinstance(error, BaseException) else Exception(str(error))
+        self.span.record_exception(exc)
+        self.span.set_status(StatusCode.ERROR)
+
+
+class lemma_run:
+    """Context manager that opens a Lemma agent run span for the duration of the block.
+
+    Use this as a zero-refactor alternative to :func:`wrap_agent` when you want
+    to instrument existing code without extracting it into a separate function.
+
+    Supports both ``async with`` and ``with``.
+
+    Args:
+        agent_name: Human-readable name recorded as ``ai.agent.name``.
+        input: The run input. Serialized as ``ai.agent.input`` JSON attribute.
+        is_experiment: Mark this run as an experiment in Lemma.
+
+    Example (async)::
+
+        async with lemma_run("my-agent", input=user_message) as run:
+            response = await call_llm(user_message)
+            run.on_complete(response)
+
+        print(run.run_id)
+
+    Example (sync)::
+
+        with lemma_run("my-agent", input=user_message) as run:
+            response = call_llm(user_message)
+            run.on_complete(response)
+    """
+
+    def __init__(
+        self,
+        agent_name: str,
+        *,
+        input: Any = None,
+        is_experiment: bool = False,
+    ) -> None:
+        self._agent_name = agent_name
+        self._input = input
+        self._is_experiment = is_experiment
+        self._token: object | None = None
+        self._run: RunContext | None = None
+
+    def _start(self) -> RunContext:
+        tracer = trace.get_tracer("lemma")
+        run_id = str(uuid.uuid4())
+
+        span = tracer.start_span(
+            "ai.agent.run",
+            context=Context(),
+            attributes={
+                "ai.agent.name": self._agent_name,
+                "lemma.run_id": run_id,
+                "lemma.is_experiment": is_experiment_mode_enabled() or self._is_experiment,
+                "lemma.auto_end_root": False,
+            },
+        )
+        span.set_attribute("ai.agent.input", json.dumps(self._input, default=str))
+        _lemma_debug("trace-wrapper", "span started (context manager)", agent_name=self._agent_name, run_id=run_id)
+
+        ctx = trace.set_span_in_context(span, Context())
+        self._token = context.attach(ctx)
+        self._run = RunContext(span=span, run_id=run_id)
+        return self._run
+
+    def _end(self, exc_val: BaseException | None) -> None:
+        run = self._run
+        if run is None:
+            return
+
+        if exc_val is not None:
+            run.record_error(exc_val)
+
+        if not run._ended:
+            run._ended = True
+            run.span.end()
+            _lemma_debug("trace-wrapper", "span ended (context manager exit)", run_id=run.run_id)
+
+        if self._token is not None:
+            context.detach(self._token)
+            self._token = None
+
+    # ---- sync ----------------------------------------------------------------
+
+    def __enter__(self) -> RunContext:
+        return self._start()
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        self._end(exc_val)
+        return False  # never suppress exceptions
+
+    # ---- async ---------------------------------------------------------------
+
+    async def __aenter__(self) -> RunContext:
+        return self._start()
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> bool:
+        self._end(exc_val)
+        return False  # never suppress exceptions
