@@ -10,9 +10,8 @@ export type TraceContext = {
   runId: string;
   /**
    * Record the run output and end the agent span. Sets `ai.agent.output` on
-   * the span and calls `span.end()` immediately — the parent span does not
-   * stay open until the wrapped function returns. If omitted, the function's
-   * return value is captured when the wrapped function completes.
+   * the span and calls `span.end()` — the parent span does not end until you
+   * call this (except on uncaught errors, which still end the span).
    */
   onComplete: (result: unknown) => void;
   /** Record an error on the span. Marks the span as errored. */
@@ -55,10 +54,8 @@ function normalizeThreadId(threadId: unknown): string | undefined {
  * agent metadata (name, run ID, experiment flag), and handles error recording.
  *
  * `ai.agent.input` and `ai.agent.output` are set as JSON strings for Lemma
- * ingestion and UI. When you call {@link TraceContext.onComplete}, the span
- * ends immediately at that call — it does not wait for the wrapped function
- * to return. If you never call `onComplete`, the span ends when the wrapped
- * function returns or throws, and the return value is used as output.
+ * ingestion and UI. You must call {@link TraceContext.onComplete} to set
+ * output and end the span. Uncaught errors still end the span with an error status.
  *
  * @example
  * const myAgent = wrapAgent<{ topic: string }>(
@@ -134,12 +131,6 @@ export function wrapAgent<Input = unknown>(
         };
 
         const result = await fn.call(this, { span, runId, onComplete, recordError }, input);
-
-        if (!outputSet) {
-          span.setAttribute("ai.agent.output", JSON.stringify(result) ?? "null");
-          span.end();
-          lemmaDebug("trace-wrapper", "span ended after fn returned (no onComplete)", { runId });
-        }
 
         return { result, runId, span };
       });

@@ -45,16 +45,14 @@ class TraceContext:
     run_id: str
     """Unique identifier for this agent run."""
 
-    _output_set: bool = field(default=False, init=False, repr=False)
     _root_ended: bool = field(default=False, init=False, repr=False)
 
     def on_complete(self, result: Any) -> None:
         """Record the run output and end the agent span.
 
-        Sets ``ai.agent.output`` on the span and ends the span immediately — the
-        parent span does not stay open until the wrapped function returns.
-        If omitted, the function's return value is captured when the wrapped
-        function completes.
+        Sets ``ai.agent.output`` on the span and ends the span. The parent span
+        does not end until you call this (except on uncaught errors, which still
+        end the span).
 
         A second call is ignored (first completion wins), matching the
         TypeScript ``onComplete`` behavior.
@@ -62,7 +60,6 @@ class TraceContext:
         if self._root_ended:
             return
         self.span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-        self._output_set = True
         self._root_ended = True
         self.span.end()
         _lemma_debug("trace-wrapper", "on_complete called", run_id=self.run_id)
@@ -224,8 +221,8 @@ def wrap_agent(
     """Wrap an agent function with OpenTelemetry tracing, or open a traced context block.
 
     **Callable wrapper** (pass ``fn``): returns a traced version of your function.
-    The span ends when :meth:`TraceContext.on_complete` is called, or when the
-    wrapped function returns or throws if ``on_complete`` was not called.
+    You must call :meth:`TraceContext.on_complete` to set output and end the span.
+    Uncaught exceptions still end the span with an error status.
 
     **Context manager** (omit ``fn``): returns a context manager that opens a run span
     for the duration of the ``with`` / ``async with`` block — no function extraction needed.
@@ -243,10 +240,10 @@ def wrap_agent(
 
     Examples::
 
-        # Callable wrapper — span ends at on_complete or when the function returns
+        # Callable wrapper — call on_complete to record output and end the span
         async def run_agent(ctx: TraceContext, user_message: str) -> str:
             result = await call_llm(user_message)
-            ctx.on_complete(result)  # optional: set output explicitly
+            ctx.on_complete(result)
             return result
 
         wrapped = wrap_agent("my-agent", run_agent)
@@ -307,18 +304,6 @@ def wrap_agent(
             else:
                 result = fn(trace_ctx, agent_input)  # pragma: no cover
 
-            if not trace_ctx._output_set:
-                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-
-            if not trace_ctx._root_ended:
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug(
-                    "trace-wrapper",
-                    "span ended after fn returned (no on_complete)",
-                    run_id=run_id,
-                )
-
             return result, run_id, span
         except BaseException as exc:
             span.record_exception(exc)
@@ -343,18 +328,6 @@ def wrap_agent(
         try:
             trace_ctx = TraceContext(span=span, run_id=run_id)
             result = fn(trace_ctx, agent_input)
-
-            if not trace_ctx._output_set:
-                span.set_attribute("ai.agent.output", json.dumps(result, default=str))
-
-            if not trace_ctx._root_ended:
-                trace_ctx._root_ended = True
-                span.end()
-                _lemma_debug(
-                    "trace-wrapper",
-                    "span ended after fn returned (no on_complete)",
-                    run_id=run_id,
-                )
 
             return result, run_id, span
         except BaseException as exc:

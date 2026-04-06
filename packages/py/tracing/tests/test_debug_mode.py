@@ -16,6 +16,11 @@ from uselemma_tracing import (
 from uselemma_tracing.debug_mode import _lemma_debug
 
 
+def _echo(ctx, value):
+    ctx.on_complete(value)
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Helpers shared across tests
 # ---------------------------------------------------------------------------
@@ -126,15 +131,15 @@ class TestWrapAgentDebugLogging:
         out = capsys.readouterr().out
         assert out == ""
 
-    def test_logs_success_end_when_debug_enabled(self, monkeypatch, capsys):
+    def test_logs_on_complete_when_debug_enabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
         enable_debug_mode()
 
-        wrapped = wrap_agent("test-agent", lambda _ctx, v: v)
+        wrapped = wrap_agent("test-agent", _echo)
         wrapped("hello")
 
         out = capsys.readouterr().out
-        assert "span ended after fn returned" in out
+        assert "on_complete called" in out
 
     def test_logs_error_end_when_debug_enabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())

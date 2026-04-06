@@ -15,6 +15,11 @@ from uselemma_tracing import (
 )
 
 
+def _echo(ctx, value):
+    ctx.on_complete(value)
+    return value
+
+
 @dataclass
 class _FakeSpan:
     attributes: dict[str, Any] = field(default_factory=dict)
@@ -64,7 +69,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     disable_experiment_mode()
     assert is_experiment_mode_enabled() is False
 
-    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=False)
+    wrapped = wrap_agent("demo-agent", _echo, is_experiment=False)
     result, _run_id, _span = wrapped("hello")
     assert result == "hello"
     assert tracer.last_name == "ai.agent.run"
@@ -73,7 +78,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
 
-    wrapped_local = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=True)
+    wrapped_local = wrap_agent("demo-agent", _echo, is_experiment=True)
     wrapped_local("hello")
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
@@ -85,7 +90,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     enable_experiment_mode()
     assert is_experiment_mode_enabled() is True
 
-    wrapped_global = wrap_agent("demo-agent", lambda _ctx, value: value, is_experiment=False)
+    wrapped_global = wrap_agent("demo-agent", _echo, is_experiment=False)
     wrapped_global("hello")
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
@@ -97,7 +102,7 @@ def test_wrap_agent_sets_thread_id_from_invocation_options(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
+    wrapped = wrap_agent("demo-agent", _echo)
     wrapped("hello", {"thread_id": "thread_123"})
 
     assert tracer.last_attributes is not None
@@ -108,20 +113,20 @@ def test_wrap_agent_ignores_empty_thread_id_from_invocation_options(monkeypatch)
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
+    wrapped = wrap_agent("demo-agent", _echo)
     wrapped("hello", {"thread_id": "   "})
 
     assert tracer.last_attributes is not None
     assert "lemma.thread_id" not in tracer.last_attributes
 
 
-def test_span_ends_when_fn_returns(monkeypatch):
+def test_span_stays_open_without_on_complete(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
     wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
     _, _, span = wrapped("hello")
-    assert span.ended is True
+    assert span.ended is False
 
 
 def test_on_complete_sets_output_span_still_ends_once(monkeypatch):
@@ -177,8 +182,10 @@ async def test_wrap_agent_async_agent(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    async def async_handler(_ctx, value):
-        return value.upper()
+    async def async_handler(ctx, value):
+        out = value.upper()
+        ctx.on_complete(out)
+        return out
 
     wrapped = wrap_agent("async-agent", async_handler)
     result, run_id, span = await wrapped("hello")
@@ -194,6 +201,7 @@ def test_record_error_records_exception_and_sets_status(monkeypatch):
 
     def handler(ctx, _value):
         ctx.record_error(Exception("boom"))
+        ctx.on_complete("ok")
         return "ok"
 
     wrapped = wrap_agent("demo-agent", handler)
@@ -210,6 +218,7 @@ def test_record_error_wraps_non_exception_in_exception(monkeypatch):
 
     def handler(ctx, _value):
         ctx.record_error("not an exception")
+        ctx.on_complete("ok")
         return "ok"
 
     wrapped = wrap_agent("demo-agent", handler)

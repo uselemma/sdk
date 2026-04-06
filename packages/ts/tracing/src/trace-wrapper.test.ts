@@ -55,7 +55,9 @@ describe("wrapAgent", () => {
   });
 
   it("sets ai.agent.name attribute", async () => {
-    const wrapped = wrapAgent("my-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("my-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
@@ -63,7 +65,9 @@ describe("wrapAgent", () => {
   });
 
   it("sets ai.agent.input and ai.agent.output as JSON strings", async () => {
-    const wrapped = wrapAgent("my-agent", async (_ctx, v: string) => `out:${v}`);
+    const wrapped = wrapAgent("my-agent", async (ctx, v: string) => {
+      ctx.onComplete(`out:${v}`);
+    });
     await wrapped("hello");
 
     expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.input", '"hello"');
@@ -71,7 +75,9 @@ describe("wrapAgent", () => {
   });
 
   it("lemma.is_experiment is false by default", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
@@ -79,7 +85,9 @@ describe("wrapAgent", () => {
   });
 
   it("lemma.is_experiment is true when isExperiment: true", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v, {
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    }, {
       isExperiment: true,
     });
     await wrapped("x");
@@ -90,7 +98,9 @@ describe("wrapAgent", () => {
 
   it("lemma.is_experiment is true when enableExperimentMode is active", async () => {
     enableExperimentMode();
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
@@ -98,7 +108,9 @@ describe("wrapAgent", () => {
   });
 
   it("invocation options override wrapper isExperiment setting", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v, {
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    }, {
       isExperiment: true,
     });
     await wrapped("x", { isExperiment: false });
@@ -108,7 +120,9 @@ describe("wrapAgent", () => {
   });
 
   it("sets lemma.thread_id when threadId is provided in invocation options", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     await wrapped("x", { threadId: "thread_123" });
 
     const call = mockStartSpan.mock.calls[0];
@@ -116,18 +130,20 @@ describe("wrapAgent", () => {
   });
 
   it("does not set lemma.thread_id for blank threadId values", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     await wrapped("x", { threadId: "   " });
 
     const call = mockStartSpan.mock.calls[0];
     expect(call[1].attributes["lemma.thread_id"]).toBeUndefined();
   });
 
-  it("span ends when fn returns", async () => {
+  it("does not end span when fn returns without onComplete", async () => {
     const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
     await wrapped("hello");
 
-    expect(mockEnd).toHaveBeenCalledTimes(1);
+    expect(mockEnd).not.toHaveBeenCalled();
   });
 
   it("ends span when onComplete is called, not when fn returns", async () => {
@@ -162,7 +178,9 @@ describe("wrapAgent", () => {
   });
 
   it("returns runId in result", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
+      ctx.onComplete(v);
+    });
     const out = await wrapped("x");
 
     expect(typeof out.runId).toBe("string");
@@ -174,6 +192,7 @@ describe("wrapAgent", () => {
       "demo-agent",
       async (ctx) => {
         ctx.recordError(new Error("boom"));
+        ctx.onComplete("ok");
         return "ok";
       }
     );
@@ -189,6 +208,7 @@ describe("wrapAgent", () => {
       "demo-agent",
       async (ctx) => {
         ctx.recordError("not an error");
+        ctx.onComplete("ok");
         return "ok";
       }
     );
