@@ -130,6 +130,25 @@ describe("wrapAgent", () => {
     expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 
+  it("ends span when onComplete is called, not when fn returns", async () => {
+    let unblock!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const wrapped = wrapAgent("demo-agent", async (ctx) => {
+      ctx.onComplete("done");
+      await gate;
+    });
+
+    const run = wrapped("hello");
+    await Promise.resolve();
+
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+    unblock();
+    await run;
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+  });
+
   it("onComplete sets output; return value ignored for output when onComplete ran", async () => {
     const wrapped = wrapAgent("demo-agent", async (ctx) => {
       ctx.onComplete("done");

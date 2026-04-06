@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +40,7 @@ class _FakeTracer:
         self.last_name: str | None = None
         self.last_context: Context | None = None
         self.last_attributes: dict[str, Any] | None = None
+        self.last_span: _FakeSpan | None = None
 
     def start_span(
         self,
@@ -50,7 +52,9 @@ class _FakeTracer:
         self.last_name = name
         self.last_context = context
         self.last_attributes = attributes
-        return _FakeSpan(attributes=dict(attributes or {}))
+        span = _FakeSpan(attributes=dict(attributes or {}))
+        self.last_span = span
+        return span
 
 
 def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkeypatch):
@@ -134,7 +138,7 @@ def test_on_complete_sets_output_span_still_ends_once(monkeypatch):
     assert span.ended is True
 
 
-def test_on_complete_called_twice_second_output_wins(monkeypatch):
+def test_on_complete_called_twice_first_output_wins(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
@@ -145,8 +149,28 @@ def test_on_complete_called_twice_second_output_wins(monkeypatch):
 
     wrapped = wrap_agent("demo-agent", handler)
     _, _, span = wrapped("hello")
-    assert span.attributes.get("ai.agent.output") == '"b"'
+    assert span.attributes.get("ai.agent.output") == '"a"'
     assert span.ended is True
+
+
+async def test_on_complete_ends_span_before_fn_returns(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    gate = asyncio.Event()
+
+    async def async_handler(ctx, value):
+        ctx.on_complete("done")
+        await gate.wait()
+        return value
+
+    wrapped = wrap_agent("async-agent", async_handler)
+    task = asyncio.create_task(wrapped("hello"))
+    await asyncio.sleep(0)
+    assert tracer.last_span is not None
+    assert tracer.last_span.ended is True
+    gate.set()
+    await task
 
 
 async def test_wrap_agent_async_agent(monkeypatch):
