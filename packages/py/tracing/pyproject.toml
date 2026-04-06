@@ -1,6 +1,6 @@
 [project]
 name = "uselemma-tracing"
-version = "2.14.1"
+version = "2.15.0"
 description = "OpenTelemetry-based tracing module for Lemma"
 readme = "README.md"
 license = "MIT"
