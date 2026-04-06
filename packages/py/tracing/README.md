@@ -34,6 +34,7 @@ enable_experiment_mode()
 - `ai.agent.name`
 - `lemma.run_id`
 - `lemma.is_experiment`
+- `lemma.thread_id` (when `thread_id` is passed at invocation time)
 
 ```python
 from uselemma_tracing import TraceContext, wrap_agent
@@ -44,7 +45,10 @@ def my_agent(ctx: TraceContext, user_message: str):
     return result
 
 wrapped = wrap_agent("my-agent", my_agent)
-result, run_id, span = wrapped("hello")
+result, run_id, span = wrapped(
+    "hello",
+    {"thread_id": "thread_123", "is_experiment": False},
+)
 ```
 
 ## Export Behavior

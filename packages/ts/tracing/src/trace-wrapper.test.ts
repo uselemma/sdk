@@ -97,6 +97,32 @@ describe("wrapAgent", () => {
     expect(call[1].attributes["lemma.is_experiment"]).toBe(true);
   });
 
+  it("invocation options override wrapper isExperiment setting", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v, {
+      isExperiment: true,
+    });
+    await wrapped("x", { isExperiment: false });
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.is_experiment"]).toBe(false);
+  });
+
+  it("sets lemma.thread_id when threadId is provided in invocation options", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    await wrapped("x", { threadId: "thread_123" });
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.thread_id"]).toBe("thread_123");
+  });
+
+  it("does not set lemma.thread_id for blank threadId values", async () => {
+    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    await wrapped("x", { threadId: "   " });
+
+    const call = mockStartSpan.mock.calls[0];
+    expect(call[1].attributes["lemma.thread_id"]).toBeUndefined();
+  });
+
   it("span ends when fn returns", async () => {
     const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
     await wrapped("hello");

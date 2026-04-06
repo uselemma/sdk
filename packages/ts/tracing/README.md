@@ -34,20 +34,24 @@ enableExperimentMode();
 - `ai.agent.name`
 - `lemma.run_id`
 - `lemma.is_experiment`
+- `lemma.thread_id` (when `threadId` is passed at invocation time)
 
 ```typescript
 import { wrapAgent } from "@uselemma/tracing";
 
 const wrappedFn = wrapAgent(
   "my-agent",
-  async ({ onComplete }) => {
+  async ({ onComplete }, { userMessage }: { userMessage: string }) => {
     const result = await doWork(userMessage);
     onComplete(result);
     return result;
   },
 );
 
-const { result, runId } = await wrappedFn({ userMessage });
+const { result, runId } = await wrappedFn(
+  { userMessage },
+  { threadId: "thread_123", isExperiment: false },
+);
 ```
 
 ## Export Behavior

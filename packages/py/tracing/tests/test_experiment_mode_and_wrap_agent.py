@@ -74,6 +74,10 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
 
+    wrapped_local("hello", {"is_experiment": False})
+    assert tracer.last_attributes is not None
+    assert tracer.last_attributes["lemma.is_experiment"] is False
+
     enable_experiment_mode()
     assert is_experiment_mode_enabled() is True
 
@@ -83,6 +87,28 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes["lemma.is_experiment"] is True
 
     disable_experiment_mode()
+
+
+def test_wrap_agent_sets_thread_id_from_invocation_options(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
+    wrapped("hello", {"thread_id": "thread_123"})
+
+    assert tracer.last_attributes is not None
+    assert tracer.last_attributes["lemma.thread_id"] == "thread_123"
+
+
+def test_wrap_agent_ignores_empty_thread_id_from_invocation_options(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
+    wrapped("hello", {"thread_id": "   "})
+
+    assert tracer.last_attributes is not None
+    assert "lemma.thread_id" not in tracer.last_attributes
 
 
 def test_span_ends_when_fn_returns(monkeypatch):

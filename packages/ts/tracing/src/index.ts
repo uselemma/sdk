@@ -15,4 +15,9 @@ export {
   disableDebugMode,
   isDebugModeEnabled,
 } from "./debug-mode";
-export { wrapAgent, type TraceContext, type WrapAgentOptions } from "./trace-wrapper";
+export {
+  wrapAgent,
+  type TraceContext,
+  type WrapAgentOptions,
+  type WrapRunOptions,
+} from "./trace-wrapper";

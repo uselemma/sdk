@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, TypeVar, overload
+from typing import Any, Callable, Mapping, TypeVar, overload
 
 from opentelemetry import context, trace
 from opentelemetry.context import Context
@@ -13,6 +13,26 @@ from .experiment_mode import is_experiment_mode_enabled
 
 T = TypeVar("T")
 Input = TypeVar("Input")
+
+
+def _normalize_thread_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    trimmed = value.strip()
+    return trimmed if trimmed else None
+
+
+def _resolve_is_experiment(
+    run_options: Mapping[str, Any] | None,
+    default_is_experiment: bool,
+) -> bool:
+    if is_experiment_mode_enabled():
+        return True
+    if run_options is not None and "is_experiment" in run_options:
+        run_is_experiment = run_options.get("is_experiment")
+        if run_is_experiment is not None:
+            return bool(run_is_experiment)
+    return default_is_experiment
 
 
 @dataclass
@@ -171,7 +191,7 @@ def wrap_agent(
     fn: Callable[[TraceContext, Input], T],
     *,
     is_experiment: bool = ...,
-) -> Callable[[Input], tuple[T, str, Span]]: ...
+) -> Callable[[Input, Mapping[str, Any] | None], tuple[T, str, Span]]: ...
 
 
 @overload
@@ -193,7 +213,7 @@ def wrap_agent(
     *,
     input: Any = None,
     is_experiment: bool = False,
-) -> Callable[[Input], tuple[T, str, Span]] | _WrapAgentContextManager:
+) -> Callable[[Input, Mapping[str, Any] | None], tuple[T, str, Span]] | _WrapAgentContextManager:
     """Wrap an agent function with OpenTelemetry tracing, or open a traced context block.
 
     **Callable wrapper** (pass ``fn``): returns a traced version of your function.
@@ -210,7 +230,7 @@ def wrap_agent(
         is_experiment: Mark this run as an experiment in Lemma.
 
     Returns:
-        A callable wrapper ``(input) -> (result, run_id, span)`` when ``fn`` is provided,
+        A callable wrapper ``(input, options=None) -> (result, run_id, span)`` when ``fn`` is provided,
         or a context manager yielding a :class:`RunContext` when ``fn`` is omitted.
 
     Examples::
@@ -234,27 +254,39 @@ def wrap_agent(
     if fn is None:
         return _WrapAgentContextManager(agent_name, input=input, is_experiment=is_experiment)
 
-    def _start_root_span(agent_input: Input) -> tuple[Span, str]:
+    def _start_root_span(
+        agent_input: Input, run_options: Mapping[str, Any] | None = None
+    ) -> tuple[Span, str]:
         tracer = trace.get_tracer("lemma")
         run_id = str(uuid.uuid4())
+        thread_id = _normalize_thread_id(
+            run_options.get("thread_id") if run_options is not None else None
+        )
+        attributes: dict[str, Any] = {
+            "ai.agent.name": agent_name,
+            "lemma.run_id": run_id,
+            "lemma.is_experiment": _resolve_is_experiment(
+                run_options, is_experiment
+            ),
+        }
+        if thread_id is not None:
+            attributes["lemma.thread_id"] = thread_id
 
         span = tracer.start_span(
             "ai.agent.run",
             context=Context(),
-            attributes={
-                "ai.agent.name": agent_name,
-                "lemma.run_id": run_id,
-                "lemma.is_experiment": is_experiment_mode_enabled() or is_experiment,
-            },
+            attributes=attributes,
         )
         span.set_attribute("ai.agent.input", json.dumps(agent_input, default=str))
         _lemma_debug("trace-wrapper", "span started", agent_name=agent_name, run_id=run_id)
         return span, run_id
 
-    async def _wrapped_async(agent_input: Input) -> tuple[T, str, Span]:
+    async def _wrapped_async(
+        agent_input: Input, run_options: Mapping[str, Any] | None = None
+    ) -> tuple[T, str, Span]:
         import asyncio
 
-        span, run_id = _start_root_span(agent_input)
+        span, run_id = _start_root_span(agent_input, run_options)
         ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
         trace_ctx: TraceContext | None = None
@@ -287,8 +319,10 @@ def wrap_agent(
         finally:
             context.detach(token)
 
-    def _wrapped_sync(agent_input: Input) -> tuple[T, str, Span]:
-        span, run_id = _start_root_span(agent_input)
+    def _wrapped_sync(
+        agent_input: Input, run_options: Mapping[str, Any] | None = None
+    ) -> tuple[T, str, Span]:
+        span, run_id = _start_root_span(agent_input, run_options)
         ctx = trace.set_span_in_context(span, Context())
         token = context.attach(ctx)
         trace_ctx: TraceContext | None = None

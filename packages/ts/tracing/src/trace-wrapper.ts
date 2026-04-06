@@ -23,6 +23,29 @@ export type WrapAgentOptions = {
   isExperiment?: boolean;
 };
 
+export type WrapRunOptions = {
+  /** Optional thread identifier for this invocation. */
+  threadId?: string;
+  /** Mark this specific invocation as an experiment. */
+  isExperiment?: boolean;
+};
+
+function resolveIsExperiment(
+  globalEnabled: boolean,
+  wrapperOptions?: WrapAgentOptions,
+  runOptions?: WrapRunOptions
+): boolean {
+  if (globalEnabled) return true;
+  if (typeof runOptions?.isExperiment === "boolean") return runOptions.isExperiment;
+  return wrapperOptions?.isExperiment === true;
+}
+
+function normalizeThreadId(threadId: unknown): string | undefined {
+  if (typeof threadId !== "string") return undefined;
+  const trimmed = threadId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 /**
  * Wraps an agent function with OpenTelemetry tracing, automatically creating
  * a span for the agent run and providing a `TraceContext` to the wrapped function.
@@ -50,18 +73,40 @@ export type WrapAgentOptions = {
  * @param options.isExperiment - Mark this run as an experiment in Lemma.
  * @returns An async function that accepts an `input`, executes `fn` inside a traced context, and returns `{ result, runId, span }`.
  */
-export function wrapAgent<Input = unknown>(agentName: string, fn: (traceContext: TraceContext, input: Input) => any, options?: WrapAgentOptions) {
-  const wrappedFunction = async function (this: any, input: Input) {
+export function wrapAgent<Input = unknown>(
+  agentName: string,
+  fn: (traceContext: TraceContext, input: Input) => any,
+  options?: WrapAgentOptions
+) {
+  const wrappedFunction = async function (
+    this: any,
+    input: Input,
+    runOptions?: WrapRunOptions
+  ) {
     const tracer = trace.getTracer("lemma");
     const runId = uuidv4();
+    const isExperiment = resolveIsExperiment(
+      isExperimentModeEnabled(),
+      options,
+      runOptions
+    );
+    const threadId = normalizeThreadId(runOptions?.threadId);
+    const attributes: Record<string, string | boolean> = {
+      "ai.agent.name": agentName,
+      "lemma.run_id": runId,
+      "lemma.is_experiment": isExperiment,
+    };
+    if (threadId) {
+      attributes["lemma.thread_id"] = threadId;
+    }
 
-    const span = tracer.startSpan("ai.agent.run", {
-      attributes: {
-        "ai.agent.name": agentName,
-        "lemma.run_id": runId,
-        "lemma.is_experiment": isExperimentModeEnabled() || options?.isExperiment === true,
+    const span = tracer.startSpan(
+      "ai.agent.run",
+      {
+        attributes,
       },
-    }, ROOT_CONTEXT);
+      ROOT_CONTEXT
+    );
 
     span.setAttribute("ai.agent.input", JSON.stringify(input) ?? "null");
 
