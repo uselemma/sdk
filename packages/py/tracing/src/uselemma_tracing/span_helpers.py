@@ -6,7 +6,7 @@ they add a child span to whatever span is currently active.
 
 Usage
 -----
-All helpers support two forms:
+All helpers support four forms:
 
 **Bare decorator** — uses the function name as the span name::
 
@@ -20,10 +20,20 @@ All helpers support two forms:
     async def format_output(raw: str) -> str:
         return raw.strip()
 
+**Wrapper call** — wraps an existing function directly::
+
+    format_output = trace("format-output", raw_format_output)
+
+**Bare wrapper call** — uses the function name::
+
+    format_output = trace(raw_format_output)
+
 The typed helpers (``tool``, ``llm``, ``retrieval``) prefix the span name::
 
-    @tool("lookup-order")       # span: tool.lookup-order
+    @tool("lookup-order")                    # span: tool.lookup-order
     async def lookup_order(order_id: str) -> dict: ...
+
+    lookup_order = tool("lookup-order", fn)  # equivalent wrapper form
 
     @llm("gpt-4o")              # span: llm.gpt-4o
     async def generate(prompt: str) -> str: ...
@@ -75,28 +85,41 @@ def _make_span_wrapper(span_name: str, fn: F) -> F:
 
 
 def _span_decorator(prefix: str) -> Callable[..., Any]:
-    """Build a decorator factory for spans with an optional *prefix*."""
+    """Build a decorator factory for spans with an optional *prefix*.
 
-    def decorator(fn_or_name: Union[F, str, None] = None, *, name: str | None = None) -> Any:
-        # @trace  (bare — no parentheses)
-        if callable(fn_or_name):
-            fn = fn_or_name
-            span_name = f"{prefix}.{fn.__name__}" if prefix else fn.__name__
+    Supports four call forms::
+
+        @trace                          # bare decorator, uses function name
+        @trace("my-name")              # named decorator
+        trace("my-name", fn)           # wrapper call — returns wrapped fn directly
+        trace(fn)                       # wrapper call with bare function
+    """
+
+    def decorator(fn_or_name: Union[F, str, None] = None, fn: F | None = None, *, name: str | None = None) -> Any:
+        # wrapper call: tool("name", fn) or trace(fn)
+        if callable(fn_or_name) and fn is None:
+            # trace(fn) — bare wrapper call
+            span_name = f"{prefix}.{fn_or_name.__name__}" if prefix else fn_or_name.__name__
+            return _make_span_wrapper(span_name, fn_or_name)
+
+        if isinstance(fn_or_name, str) and callable(fn):
+            # tool("name", fn) — named wrapper call
+            span_name = f"{prefix}.{fn_or_name}" if prefix else fn_or_name
             return _make_span_wrapper(span_name, fn)
 
-        # @trace("my-name") or @trace(name="my-name")
+        # decorator forms: @trace("my-name") or @trace(name="my-name")
         explicit_name: str | None
         if isinstance(fn_or_name, str):
             explicit_name = fn_or_name
         else:
             explicit_name = name
 
-        def inner(fn: F) -> F:
+        def inner(f: F) -> F:
             if explicit_name:
                 span_name = f"{prefix}.{explicit_name}" if prefix else explicit_name
             else:
-                span_name = f"{prefix}.{fn.__name__}" if prefix else fn.__name__
-            return _make_span_wrapper(span_name, fn)
+                span_name = f"{prefix}.{f.__name__}" if prefix else f.__name__
+            return _make_span_wrapper(span_name, f)
 
         return inner
 

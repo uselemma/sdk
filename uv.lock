@@ -688,7 +688,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "uselemma-tracing"
-version = "2.17.0"
+version = "3.0.2"
 source = { editable = "packages/py/tracing" }
 dependencies = [
     { name = "opentelemetry-api" },
