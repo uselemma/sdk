@@ -1,6 +1,6 @@
 {
   "name": "@uselemma/tracing",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "OpenTelemetry-based tracing module for Lemma",
   "license": "MIT",
   "author": "Lemma",
