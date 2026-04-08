@@ -1,10 +1,10 @@
 """Tests for span helper call forms: decorator, named decorator, wrapper call, bare wrapper call."""
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Iterator
-from unittest.mock import patch
 
 import pytest
 
@@ -67,7 +67,7 @@ def _last_span(fake_tracer: _FakeTracer) -> _FakeSpan:
 
 
 # ---------------------------------------------------------------------------
-# trace() — no span.type attribute
+# trace() — no span.type attribute, but I/O captured
 # ---------------------------------------------------------------------------
 
 class TestTrace:
@@ -106,6 +106,16 @@ class TestTrace:
         wrapped = trace(raw)
         assert wrapped("abc") == "cba"
         assert _last_span(fake_tracer).name == "raw"
+
+    def test_input_and_output_captured(self, fake_tracer):
+        @trace("echo")
+        def echo(x):
+            return x * 2
+
+        echo(21)
+        span = _last_span(fake_tracer)
+        assert json.loads(span.attributes["input.value"]) == 21
+        assert json.loads(span.attributes["output.value"]) == 42
 
     async def test_async_named_decorator(self, fake_tracer):
         @trace("async-op")
@@ -150,7 +160,7 @@ class TestTrace:
 
 
 # ---------------------------------------------------------------------------
-# tool() — span.type = "tool"
+# tool() — span.type = "tool", I/O captured
 # ---------------------------------------------------------------------------
 
 class TestTool:
@@ -183,6 +193,16 @@ class TestTool:
         span = _last_span(fake_tracer)
         assert span.name == "lookup_order"
         assert span.attributes["span.type"] == "tool"
+
+    def test_input_and_output_captured(self, fake_tracer):
+        @tool("get-weather")
+        def get_weather(city: str):
+            return {"temp": 22, "city": city}
+
+        get_weather("London")
+        span = _last_span(fake_tracer)
+        assert json.loads(span.attributes["input.value"]) == "London"
+        assert json.loads(span.attributes["output.value"]) == {"temp": 22, "city": "London"}
 
     async def test_async_wrapper_call(self, fake_tracer):
         async def fetch_data(key: str):
@@ -217,9 +237,21 @@ class TestTool:
         assert span.attributes["span.type"] == "tool"
         assert len(span.record_exception_calls) == 1
 
+    def test_output_not_set_on_error(self, fake_tracer):
+        @tool("bad-tool")
+        def bad(x: str):
+            raise ValueError("boom")
+
+        with pytest.raises(ValueError):
+            bad("input")
+
+        span = _last_span(fake_tracer)
+        assert "input.value" in span.attributes
+        assert "output.value" not in span.attributes
+
 
 # ---------------------------------------------------------------------------
-# llm() — span.type = "generation"
+# llm() — span.type = "generation", I/O captured
 # ---------------------------------------------------------------------------
 
 class TestLlm:
@@ -253,6 +285,16 @@ class TestLlm:
         assert span.name == "call_model"
         assert span.attributes["span.type"] == "generation"
 
+    def test_input_and_output_captured(self, fake_tracer):
+        @llm("gpt-4o")
+        def generate(prompt: str):
+            return "the answer"
+
+        generate("what is 2+2?")
+        span = _last_span(fake_tracer)
+        assert json.loads(span.attributes["input.value"]) == "what is 2+2?"
+        assert json.loads(span.attributes["output.value"]) == "the answer"
+
     async def test_async_wrapper_call(self, fake_tracer):
         async def generate(prompt: str):
             return f"async: {prompt}"
@@ -276,7 +318,7 @@ class TestLlm:
 
 
 # ---------------------------------------------------------------------------
-# retrieval() — span.type = "retriever"
+# retrieval() — span.type = "retriever", I/O captured
 # ---------------------------------------------------------------------------
 
 class TestRetrieval:
@@ -309,6 +351,16 @@ class TestRetrieval:
         span = _last_span(fake_tracer)
         assert span.name == "semantic_search"
         assert span.attributes["span.type"] == "retriever"
+
+    def test_input_and_output_captured(self, fake_tracer):
+        @retrieval("vector-search")
+        def search(query: str):
+            return ["doc1", "doc2"]
+
+        search("cats")
+        span = _last_span(fake_tracer)
+        assert json.loads(span.attributes["input.value"]) == "cats"
+        assert json.loads(span.attributes["output.value"]) == ["doc1", "doc2"]
 
     async def test_async_wrapper_call(self, fake_tracer):
         async def search(query: str):

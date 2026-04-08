@@ -8,7 +8,8 @@ import type { Span } from "@opentelemetry/api";
  * is currently active.
  *
  * The span ends when the function returns (or throws). Return values are
- * passed through unchanged.
+ * passed through unchanged. Input and output are automatically recorded as
+ * `input.value` and `output.value` span attributes.
  */
 function spanHelper<Input = unknown, Output = unknown>(
   spanName: string,
@@ -21,8 +22,10 @@ function spanHelper<Input = unknown, Output = unknown>(
       if (spanType) {
         span.setAttribute("span.type", spanType);
       }
+      span.setAttribute("input.value", JSON.stringify(input) ?? "null");
       try {
         const result = await fn(input);
+        span.setAttribute("output.value", JSON.stringify(result) ?? "null");
         span.end();
         return result;
       } catch (err) {
@@ -40,6 +43,8 @@ function spanHelper<Input = unknown, Output = unknown>(
  *
  * Use this for any internal function you want to appear in the trace — tool
  * implementations, retrieval calls, preprocessing steps, etc.
+ *
+ * Input and output are automatically captured as span attributes.
  *
  * @param name - Span name shown in the Lemma trace view.
  * @param fn   - Function to wrap. Receives the same input as the returned wrapper.
@@ -61,6 +66,7 @@ export function trace<Input = unknown, Output = unknown>(
 
 /**
  * Wraps a tool function with a child span. Sets `span.type = "tool"`.
+ * Input and output are automatically captured as `input.value` / `output.value`.
  *
  * @example
  * const lookupOrder = tool("lookup-order", async (orderId: string) => {
@@ -76,6 +82,7 @@ export function tool<Input = unknown, Output = unknown>(
 
 /**
  * Wraps an LLM call with a child span. Sets `span.type = "generation"`.
+ * Input and output are automatically captured as `input.value` / `output.value`.
  *
  * Prefer provider instrumentation (OpenInference) for automatic LLM spans
  * with prompt/completion/token attributes. Use this helper for custom or
@@ -95,6 +102,7 @@ export function llm<Input = unknown, Output = unknown>(
 
 /**
  * Wraps a retrieval function with a child span. Sets `span.type = "retriever"`.
+ * Input and output are automatically captured as `input.value` / `output.value`.
  *
  * @example
  * const search = retrieval("vector-search", async (query: string) => {

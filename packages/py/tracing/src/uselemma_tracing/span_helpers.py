@@ -4,6 +4,10 @@ These decorators wrap functions with a child span under the currently active
 context. Unlike :func:`wrap_agent`, they do **not** create a new trace root —
 they add a child span to whatever span is currently active.
 
+Input and output are automatically captured as ``input.value`` and
+``output.value`` span attributes so they appear in the Lemma trace UI without
+any manual ``set_attribute`` calls.
+
 Usage
 -----
 All helpers support four forms:
@@ -28,8 +32,8 @@ All helpers support four forms:
 
     format_output = trace(raw_format_output)
 
-The typed helpers (``tool``, ``llm``, ``retrieval``) set a ``span.type``
-attribute on the span to signal span kind::
+The typed helpers (``tool``, ``llm``, ``retrieval``) additionally set a
+``span.type`` attribute to signal span kind::
 
     @tool("lookup-order")                    # span.type = "tool"
     async def lookup_order(order_id: str) -> dict: ...
@@ -45,6 +49,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 from typing import Any, Callable, TypeVar, Union
 
 from opentelemetry import trace as otel_trace
@@ -53,8 +58,26 @@ from opentelemetry.trace import StatusCode
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+def _serialize(value: Any) -> str:
+    try:
+        return json.dumps(value, default=str)
+    except Exception:
+        return str(value)
+
+
+def _capture_input(*args: Any, **kwargs: Any) -> str:
+    if len(args) == 1 and not kwargs:
+        return _serialize(args[0])
+    if not args and kwargs:
+        return _serialize(kwargs)
+    return _serialize({"args": list(args), "kwargs": kwargs})
+
+
 def _make_span_wrapper(span_name: str, fn: F, span_type: str | None = None) -> F:
-    """Return a wrapper that runs *fn* inside a child span named *span_name*."""
+    """Return a wrapper that runs *fn* inside a child span named *span_name*.
+
+    Automatically records ``input.value`` and ``output.value`` on the span.
+    """
     if asyncio.iscoroutinefunction(fn):
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -62,8 +85,11 @@ def _make_span_wrapper(span_name: str, fn: F, span_type: str | None = None) -> F
             with tracer.start_as_current_span(span_name) as span:
                 if span_type:
                     span.set_attribute("span.type", span_type)
+                span.set_attribute("input.value", _capture_input(*args, **kwargs))
                 try:
-                    return await fn(*args, **kwargs)
+                    result = await fn(*args, **kwargs)
+                    span.set_attribute("output.value", _serialize(result))
+                    return result
                 except BaseException as exc:
                     span.record_exception(exc)
                     span.set_status(StatusCode.ERROR)
@@ -77,8 +103,11 @@ def _make_span_wrapper(span_name: str, fn: F, span_type: str | None = None) -> F
             with tracer.start_as_current_span(span_name) as span:
                 if span_type:
                     span.set_attribute("span.type", span_type)
+                span.set_attribute("input.value", _capture_input(*args, **kwargs))
                 try:
-                    return fn(*args, **kwargs)
+                    result = fn(*args, **kwargs)
+                    span.set_attribute("output.value", _serialize(result))
+                    return result
                 except BaseException as exc:
                     span.record_exception(exc)
                     span.set_status(StatusCode.ERROR)
@@ -126,16 +155,20 @@ def _span_decorator(span_type: str | None = None) -> Callable[..., Any]:
 
 
 #: Wraps a function with a child span. Use as ``@trace`` or ``@trace("name")``.
+#: Automatically captures input and output as span attributes.
 trace = _span_decorator()
 
 #: Wraps a tool function with a child span. Sets ``span.type = "tool"``.
+#: Automatically captures input and output as span attributes.
 #: Use as ``@tool`` or ``@tool("search")``.
 tool = _span_decorator("tool")
 
 #: Wraps an LLM call with a child span. Sets ``span.type = "generation"``.
+#: Automatically captures input and output as span attributes.
 #: Use as ``@llm`` or ``@llm("gpt-4o")``.
 llm = _span_decorator("generation")
 
 #: Wraps a retrieval function with a child span. Sets ``span.type = "retriever"``.
+#: Automatically captures input and output as span attributes.
 #: Use as ``@retrieval`` or ``@retrieval("vector-search")``.
 retrieval = _span_decorator("retriever")
