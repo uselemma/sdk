@@ -12,11 +12,15 @@ import type { Span } from "@opentelemetry/api";
  */
 function spanHelper<Input = unknown, Output = unknown>(
   spanName: string,
-  fn: (input: Input) => Output | Promise<Output>
+  fn: (input: Input) => Output | Promise<Output>,
+  spanType?: string
 ): (input: Input) => Promise<Output> {
   return async function (input: Input): Promise<Output> {
     const tracer = otelTrace.getTracer("lemma");
     return tracer.startActiveSpan(spanName, async (span: Span) => {
+      if (spanType) {
+        span.setAttribute("span.type", spanType);
+      }
       try {
         const result = await fn(input);
         span.end();
@@ -56,7 +60,7 @@ export function trace<Input = unknown, Output = unknown>(
 }
 
 /**
- * Wraps a tool function with a child span named `tool.<name>`.
+ * Wraps a tool function with a child span. Sets `span.type = "tool"`.
  *
  * @example
  * const lookupOrder = tool("lookup-order", async (orderId: string) => {
@@ -67,11 +71,11 @@ export function tool<Input = unknown, Output = unknown>(
   name: string,
   fn: (input: Input) => Output | Promise<Output>
 ): (input: Input) => Promise<Output> {
-  return spanHelper(`tool.${name}`, fn);
+  return spanHelper(name, fn, "tool");
 }
 
 /**
- * Wraps an LLM call with a child span named `llm.<name>`.
+ * Wraps an LLM call with a child span. Sets `span.type = "generation"`.
  *
  * Prefer provider instrumentation (OpenInference) for automatic LLM spans
  * with prompt/completion/token attributes. Use this helper for custom or
@@ -86,11 +90,11 @@ export function llm<Input = unknown, Output = unknown>(
   name: string,
   fn: (input: Input) => Output | Promise<Output>
 ): (input: Input) => Promise<Output> {
-  return spanHelper(`llm.${name}`, fn);
+  return spanHelper(name, fn, "generation");
 }
 
 /**
- * Wraps a retrieval function with a child span named `retrieval.<name>`.
+ * Wraps a retrieval function with a child span. Sets `span.type = "retriever"`.
  *
  * @example
  * const search = retrieval("vector-search", async (query: string) => {
@@ -101,5 +105,5 @@ export function retrieval<Input = unknown, Output = unknown>(
   name: string,
   fn: (input: Input) => Output | Promise<Output>
 ): (input: Input) => Promise<Output> {
-  return spanHelper(`retrieval.${name}`, fn);
+  return spanHelper(name, fn, "retriever");
 }

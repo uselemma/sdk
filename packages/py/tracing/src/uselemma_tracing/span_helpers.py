@@ -28,17 +28,16 @@ All helpers support four forms:
 
     format_output = trace(raw_format_output)
 
-The typed helpers (``tool``, ``llm``, ``retrieval``) prefix the span name::
+The typed helpers (``tool``, ``llm``, ``retrieval``) set a ``span.type``
+attribute on the span to signal span kind::
 
-    @tool("lookup-order")                    # span: tool.lookup-order
+    @tool("lookup-order")                    # span.type = "tool"
     async def lookup_order(order_id: str) -> dict: ...
 
-    lookup_order = tool("lookup-order", fn)  # equivalent wrapper form
-
-    @llm("gpt-4o")              # span: llm.gpt-4o
+    @llm("gpt-4o")                           # span.type = "generation"
     async def generate(prompt: str) -> str: ...
 
-    @retrieval("vector-search") # span: retrieval.vector-search
+    @retrieval("vector-search")              # span.type = "retriever"
     async def search(query: str) -> list: ...
 """
 
@@ -54,13 +53,15 @@ from opentelemetry.trace import StatusCode
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-def _make_span_wrapper(span_name: str, fn: F) -> F:
+def _make_span_wrapper(span_name: str, fn: F, span_type: str | None = None) -> F:
     """Return a wrapper that runs *fn* inside a child span named *span_name*."""
     if asyncio.iscoroutinefunction(fn):
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             tracer = otel_trace.get_tracer("lemma")
             with tracer.start_as_current_span(span_name) as span:
+                if span_type:
+                    span.set_attribute("span.type", span_type)
                 try:
                     return await fn(*args, **kwargs)
                 except BaseException as exc:
@@ -74,6 +75,8 @@ def _make_span_wrapper(span_name: str, fn: F) -> F:
         def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
             tracer = otel_trace.get_tracer("lemma")
             with tracer.start_as_current_span(span_name) as span:
+                if span_type:
+                    span.set_attribute("span.type", span_type)
                 try:
                     return fn(*args, **kwargs)
                 except BaseException as exc:
@@ -84,8 +87,8 @@ def _make_span_wrapper(span_name: str, fn: F) -> F:
         return sync_wrapper  # type: ignore[return-value]
 
 
-def _span_decorator(prefix: str) -> Callable[..., Any]:
-    """Build a decorator factory for spans with an optional *prefix*.
+def _span_decorator(span_type: str | None = None) -> Callable[..., Any]:
+    """Build a decorator factory that sets *span_type* as a ``span.type`` attribute.
 
     Supports four call forms::
 
@@ -99,13 +102,12 @@ def _span_decorator(prefix: str) -> Callable[..., Any]:
         # wrapper call: tool("name", fn) or trace(fn)
         if callable(fn_or_name) and fn is None:
             # trace(fn) — bare wrapper call
-            span_name = f"{prefix}.{fn_or_name.__name__}" if prefix else fn_or_name.__name__
-            return _make_span_wrapper(span_name, fn_or_name)
+            span_name = fn_or_name.__name__
+            return _make_span_wrapper(span_name, fn_or_name, span_type)
 
         if isinstance(fn_or_name, str) and callable(fn):
             # tool("name", fn) — named wrapper call
-            span_name = f"{prefix}.{fn_or_name}" if prefix else fn_or_name
-            return _make_span_wrapper(span_name, fn)
+            return _make_span_wrapper(fn_or_name, fn, span_type)
 
         # decorator forms: @trace("my-name") or @trace(name="my-name")
         explicit_name: str | None
@@ -115,11 +117,8 @@ def _span_decorator(prefix: str) -> Callable[..., Any]:
             explicit_name = name
 
         def inner(f: F) -> F:
-            if explicit_name:
-                span_name = f"{prefix}.{explicit_name}" if prefix else explicit_name
-            else:
-                span_name = f"{prefix}.{f.__name__}" if prefix else f.__name__
-            return _make_span_wrapper(span_name, f)
+            sname = explicit_name if explicit_name else f.__name__
+            return _make_span_wrapper(sname, f, span_type)
 
         return inner
 
@@ -127,16 +126,16 @@ def _span_decorator(prefix: str) -> Callable[..., Any]:
 
 
 #: Wraps a function with a child span. Use as ``@trace`` or ``@trace("name")``.
-trace = _span_decorator("")
+trace = _span_decorator()
 
-#: Wraps a tool function with a ``tool.<name>`` child span.
+#: Wraps a tool function with a child span. Sets ``span.type = "tool"``.
 #: Use as ``@tool`` or ``@tool("search")``.
 tool = _span_decorator("tool")
 
-#: Wraps an LLM call with an ``llm.<name>`` child span.
+#: Wraps an LLM call with a child span. Sets ``span.type = "generation"``.
 #: Use as ``@llm`` or ``@llm("gpt-4o")``.
-llm = _span_decorator("llm")
+llm = _span_decorator("generation")
 
-#: Wraps a retrieval function with a ``retrieval.<name>`` child span.
+#: Wraps a retrieval function with a child span. Sets ``span.type = "retriever"``.
 #: Use as ``@retrieval`` or ``@retrieval("vector-search")``.
-retrieval = _span_decorator("retrieval")
+retrieval = _span_decorator("retriever")

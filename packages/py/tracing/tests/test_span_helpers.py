@@ -18,9 +18,13 @@ from uselemma_tracing.span_helpers import llm, retrieval, tool, trace
 @dataclass
 class _FakeSpan:
     name: str
+    attributes: dict[str, Any] = field(default_factory=dict)
     record_exception_calls: list[BaseException] = field(default_factory=list)
     status_calls: list = field(default_factory=list)
     ended: bool = False
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        self.attributes[key] = value
 
     def record_exception(self, exc: BaseException) -> None:
         self.record_exception_calls.append(exc)
@@ -63,7 +67,7 @@ def _last_span(fake_tracer: _FakeTracer) -> _FakeSpan:
 
 
 # ---------------------------------------------------------------------------
-# trace() — no prefix
+# trace() — no span.type attribute
 # ---------------------------------------------------------------------------
 
 class TestTrace:
@@ -73,7 +77,9 @@ class TestTrace:
             return x * 2
 
         assert my_fn(3) == 6
-        assert _last_span(fake_tracer).name == "my_fn"
+        span = _last_span(fake_tracer)
+        assert span.name == "my_fn"
+        assert "span.type" not in span.attributes
 
     def test_named_decorator_uses_given_name(self, fake_tracer):
         @trace("custom-name")
@@ -81,7 +87,9 @@ class TestTrace:
             return x + 1
 
         assert my_fn(5) == 6
-        assert _last_span(fake_tracer).name == "custom-name"
+        span = _last_span(fake_tracer)
+        assert span.name == "custom-name"
+        assert "span.type" not in span.attributes
 
     def test_wrapper_call_named(self, fake_tracer):
         def raw(x):
@@ -142,33 +150,39 @@ class TestTrace:
 
 
 # ---------------------------------------------------------------------------
-# tool() — tool. prefix
+# tool() — span.type = "tool"
 # ---------------------------------------------------------------------------
 
 class TestTool:
-    def test_named_decorator_prefixes_span(self, fake_tracer):
+    def test_named_decorator_sets_span_type(self, fake_tracer):
         @tool("get-weather")
         def get_weather(city: str):
             return f"sunny in {city}"
 
         assert get_weather("London") == "sunny in London"
-        assert _last_span(fake_tracer).name == "tool.get-weather"
+        span = _last_span(fake_tracer)
+        assert span.name == "get-weather"
+        assert span.attributes["span.type"] == "tool"
 
-    def test_wrapper_call_prefixes_span(self, fake_tracer):
+    def test_wrapper_call_sets_span_type(self, fake_tracer):
         def get_weather(city: str):
             return f"rainy in {city}"
 
         wrapped = tool("get-weather", get_weather)
         assert wrapped("Paris") == "rainy in Paris"
-        assert _last_span(fake_tracer).name == "tool.get-weather"
+        span = _last_span(fake_tracer)
+        assert span.name == "get-weather"
+        assert span.attributes["span.type"] == "tool"
 
-    def test_bare_decorator_uses_function_name_with_prefix(self, fake_tracer):
+    def test_bare_decorator_uses_function_name(self, fake_tracer):
         @tool
         def lookup_order(order_id: str):
             return {"id": order_id}
 
         assert lookup_order("123") == {"id": "123"}
-        assert _last_span(fake_tracer).name == "tool.lookup_order"
+        span = _last_span(fake_tracer)
+        assert span.name == "lookup_order"
+        assert span.attributes["span.type"] == "tool"
 
     async def test_async_wrapper_call(self, fake_tracer):
         async def fetch_data(key: str):
@@ -176,7 +190,9 @@ class TestTool:
 
         wrapped = tool("fetch-data", fetch_data)
         assert await wrapped("abc") == "data:abc"
-        assert _last_span(fake_tracer).name == "tool.fetch-data"
+        span = _last_span(fake_tracer)
+        assert span.name == "fetch-data"
+        assert span.attributes["span.type"] == "tool"
 
     async def test_async_named_decorator(self, fake_tracer):
         @tool("search-db")
@@ -184,9 +200,11 @@ class TestTool:
             return [query]
 
         assert await search("test") == ["test"]
-        assert _last_span(fake_tracer).name == "tool.search-db"
+        span = _last_span(fake_tracer)
+        assert span.name == "search-db"
+        assert span.attributes["span.type"] == "tool"
 
-    def test_error_propagates_with_prefix(self, fake_tracer):
+    def test_error_propagates(self, fake_tracer):
         @tool("bad-tool")
         def bad():
             raise KeyError("missing")
@@ -195,38 +213,45 @@ class TestTool:
             bad()
 
         span = _last_span(fake_tracer)
-        assert span.name == "tool.bad-tool"
+        assert span.name == "bad-tool"
+        assert span.attributes["span.type"] == "tool"
         assert len(span.record_exception_calls) == 1
 
 
 # ---------------------------------------------------------------------------
-# llm() — llm. prefix
+# llm() — span.type = "generation"
 # ---------------------------------------------------------------------------
 
 class TestLlm:
-    def test_named_decorator_prefixes_span(self, fake_tracer):
+    def test_named_decorator_sets_span_type(self, fake_tracer):
         @llm("gpt-4o")
         def generate(prompt: str):
             return f"response to: {prompt}"
 
         assert generate("hi") == "response to: hi"
-        assert _last_span(fake_tracer).name == "llm.gpt-4o"
+        span = _last_span(fake_tracer)
+        assert span.name == "gpt-4o"
+        assert span.attributes["span.type"] == "generation"
 
-    def test_wrapper_call_prefixes_span(self, fake_tracer):
+    def test_wrapper_call_sets_span_type(self, fake_tracer):
         def generate(prompt: str):
             return prompt.upper()
 
         wrapped = llm("gpt-4o", generate)
         assert wrapped("hello") == "HELLO"
-        assert _last_span(fake_tracer).name == "llm.gpt-4o"
+        span = _last_span(fake_tracer)
+        assert span.name == "gpt-4o"
+        assert span.attributes["span.type"] == "generation"
 
-    def test_bare_decorator_uses_function_name_with_prefix(self, fake_tracer):
+    def test_bare_decorator_uses_function_name(self, fake_tracer):
         @llm
         def call_model(prompt: str):
             return "ok"
 
         call_model("test")
-        assert _last_span(fake_tracer).name == "llm.call_model"
+        span = _last_span(fake_tracer)
+        assert span.name == "call_model"
+        assert span.attributes["span.type"] == "generation"
 
     async def test_async_wrapper_call(self, fake_tracer):
         async def generate(prompt: str):
@@ -234,47 +259,56 @@ class TestLlm:
 
         wrapped = llm("claude-3", generate)
         assert await wrapped("hi") == "async: hi"
-        assert _last_span(fake_tracer).name == "llm.claude-3"
+        span = _last_span(fake_tracer)
+        assert span.name == "claude-3"
+        assert span.attributes["span.type"] == "generation"
 
-    def test_error_propagates_with_prefix(self, fake_tracer):
+    def test_error_propagates(self, fake_tracer):
         wrapped = llm("failing-model", lambda _: (_ for _ in ()).throw(RuntimeError("timeout")))
 
         with pytest.raises(RuntimeError, match="timeout"):
             wrapped("prompt")
 
         span = _last_span(fake_tracer)
-        assert span.name == "llm.failing-model"
+        assert span.name == "failing-model"
+        assert span.attributes["span.type"] == "generation"
         assert len(span.record_exception_calls) == 1
 
 
 # ---------------------------------------------------------------------------
-# retrieval() — retrieval. prefix
+# retrieval() — span.type = "retriever"
 # ---------------------------------------------------------------------------
 
 class TestRetrieval:
-    def test_named_decorator_prefixes_span(self, fake_tracer):
+    def test_named_decorator_sets_span_type(self, fake_tracer):
         @retrieval("vector-search")
         def search(query: str):
             return [f"doc:{query}"]
 
         assert search("cats") == ["doc:cats"]
-        assert _last_span(fake_tracer).name == "retrieval.vector-search"
+        span = _last_span(fake_tracer)
+        assert span.name == "vector-search"
+        assert span.attributes["span.type"] == "retriever"
 
-    def test_wrapper_call_prefixes_span(self, fake_tracer):
+    def test_wrapper_call_sets_span_type(self, fake_tracer):
         def search(query: str):
             return []
 
         wrapped = retrieval("vector-search", search)
         wrapped("dogs")
-        assert _last_span(fake_tracer).name == "retrieval.vector-search"
+        span = _last_span(fake_tracer)
+        assert span.name == "vector-search"
+        assert span.attributes["span.type"] == "retriever"
 
-    def test_bare_decorator_uses_function_name_with_prefix(self, fake_tracer):
+    def test_bare_decorator_uses_function_name(self, fake_tracer):
         @retrieval
         def semantic_search(query: str):
             return []
 
         semantic_search("test")
-        assert _last_span(fake_tracer).name == "retrieval.semantic_search"
+        span = _last_span(fake_tracer)
+        assert span.name == "semantic_search"
+        assert span.attributes["span.type"] == "retriever"
 
     async def test_async_wrapper_call(self, fake_tracer):
         async def search(query: str):
@@ -282,7 +316,9 @@ class TestRetrieval:
 
         wrapped = retrieval("async-search", search)
         assert await wrapped("x") == ["x"]
-        assert _last_span(fake_tracer).name == "retrieval.async-search"
+        span = _last_span(fake_tracer)
+        assert span.name == "async-search"
+        assert span.attributes["span.type"] == "retriever"
 
 
 # ---------------------------------------------------------------------------
