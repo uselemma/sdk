@@ -9,18 +9,50 @@ export type TraceContext = {
   /** Unique identifier for this agent run. */
   runId: string;
   /**
-   * Record the run output and end the agent span. Sets `ai.agent.output` on
-   * the span and calls `span.end()` — the parent span does not end until you
-   * call this (except on uncaught errors, which still end the span).
+   * Override the run output and close the span immediately.
+   *
+   * In non-streaming agents, `complete()` is **optional** — the wrapper
+   * automatically captures the return value as `ai.agent.output` and closes
+   * the span when the function returns. Call it explicitly only when you need
+   * to record a different output than the return value, or close the span
+   * before the function exits.
+   *
+   * In streaming agents (`{ streaming: true }`), `complete()` is **required**
+   * — call it inside the stream's `onFinish` callback once the full output is
+   * assembled.
+   *
+   * Idempotent: the first call wins, subsequent calls are no-ops.
+   */
+  complete: (result?: unknown) => void;
+  /**
+   * @deprecated Use {@link complete} instead.
    */
   onComplete: (result: unknown) => void;
-  /** Record an error on the span. Marks the span as errored. */
+  /**
+   * Record an error on the span and mark the run as failed.
+   * Does not close the span — the wrapper handles closing on return or error.
+   */
+  fail: (error: unknown) => void;
+  /**
+   * @deprecated Use {@link fail} instead.
+   */
   recordError: (error: unknown) => void;
 };
 
 export type WrapAgentOptions = {
   /** Mark this run as an experiment in Lemma. */
   isExperiment?: boolean;
+  /**
+   * Set to `true` for agents that return a streaming response before the
+   * full output is known.
+   *
+   * When `true`, the wrapper does **not** auto-close the span on function
+   * return. You must call `ctx.complete(output)` inside the stream's
+   * `onFinish` callback once the full output is assembled.
+   *
+   * @default false
+   */
+  streaming?: boolean;
 };
 
 export type WrapRunOptions = {
@@ -50,34 +82,49 @@ function normalizeThreadId(threadId: unknown): string | undefined {
  * Wraps an agent function with OpenTelemetry tracing, automatically creating
  * a span for the agent run and providing a `TraceContext` to the wrapped function.
  *
- * The returned function creates a new root span on every invocation, attaches
- * agent metadata (name, run ID, experiment flag), and handles error recording.
+ * **Non-streaming (default):** simply return a value from the wrapped function.
+ * The wrapper captures it as `ai.agent.output` and closes the span automatically.
+ * No call to `ctx.complete()` is needed.
  *
- * `ai.agent.input` and `ai.agent.output` are set as JSON strings for Lemma
- * ingestion and UI. You must call {@link TraceContext.onComplete} to set
- * output and end the span. Uncaught errors still end the span with an error status.
+ * **Streaming:** pass `{ streaming: true }` as the third argument. The wrapper
+ * will not auto-close the span on return; call `ctx.complete(output)` inside
+ * the stream's `onFinish` callback once the full output is assembled.
  *
  * @example
- * const myAgent = wrapAgent<{ topic: string }>(
- *   'my-agent',
- *   async (ctx, input) => {
- *     const result = await doWork(input.topic);
- *     ctx.onComplete(result);
- *   },
- * );
- * await myAgent({ topic: 'math' });
+ * // Non-streaming — just return a value
+ * const myAgent = agent('my-agent', async (input: string) => {
+ *   const { text } = await generateText({
+ *     model: openai('gpt-4o'), prompt: input,
+ *     experimental_telemetry: { isEnabled: true },
+ *   });
+ *   return text; // wrapper auto-captures and closes the span
+ * });
+ *
+ * @example
+ * // Streaming — opt into manual lifecycle
+ * const streamingAgent = agent('streaming-agent', async (input: string, ctx) => {
+ *   const result = await streamText({
+ *     model: openai('gpt-4o'), prompt: input,
+ *     experimental_telemetry: { isEnabled: true },
+ *     onFinish({ text }) { ctx.complete(text); },
+ *   });
+ *   return result.toDataStreamResponse();
+ * }, { streaming: true });
  *
  * @param agentName - Human-readable agent name recorded as `ai.agent.name`.
- * @param fn - The agent function to wrap. Receives a {@link TraceContext} as its first argument and the call-time input as its second.
+ * @param fn - The agent function to wrap. Receives the call-time input as its
+ *   first argument and an optional {@link TraceContext} as its second.
  * @param options - Configuration for the agent trace.
- * @param options.isExperiment - Mark this run as an experiment in Lemma.
- * @returns An async function that accepts an `input`, executes `fn` inside a traced context, and returns `{ result, runId, span }`.
+ * @returns An async function that accepts an `input`, executes `fn` inside a
+ *   traced context, and returns `{ result, runId, span }`.
  */
-export function wrapAgent<Input = unknown>(
+export function agent<Input = unknown>(
   agentName: string,
-  fn: (traceContext: TraceContext, input: Input) => any,
+  fn: (input: Input, traceContext: TraceContext) => any,
   options?: WrapAgentOptions
 ) {
+  const streaming = options?.streaming ?? false;
+
   const wrappedFunction = async function (
     this: any,
     input: Input,
@@ -102,9 +149,7 @@ export function wrapAgent<Input = unknown>(
 
     const span = tracer.startSpan(
       "ai.agent.run",
-      {
-        attributes,
-      },
+      { attributes },
       ROOT_CONTEXT
     );
 
@@ -117,27 +162,49 @@ export function wrapAgent<Input = unknown>(
 
     try {
       return await context.with(ctx, async () => {
-        const onComplete = (result: unknown): void => {
+        const complete = (result?: unknown): void => {
           if (outputSet) return;
           span.setAttribute("ai.agent.output", JSON.stringify(result) ?? "null");
           outputSet = true;
           span.end();
-          lemmaDebug("trace-wrapper", "onComplete called", { runId });
+          lemmaDebug("trace-wrapper", "complete called", { runId });
         };
 
-        const recordError = (error: unknown) => {
+        const fail = (error: unknown): void => {
           span.recordException(error instanceof Error ? error : new Error(String(error)));
           span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
         };
 
-        const result = await fn.call(this, { span, runId, onComplete, recordError }, input);
+        const traceCtx: TraceContext = {
+          span,
+          runId,
+          complete,
+          onComplete: complete,
+          fail,
+          recordError: fail,
+        };
+
+        const result = await fn.call(this, input, traceCtx);
+
+        if (!streaming && !outputSet) {
+          complete(result);
+        } else if (streaming && !outputSet) {
+          lemmaDebug("trace-wrapper", "streaming agent returned without complete()", { agentName, runId });
+          console.warn(
+            `[lemma] Streaming agent "${agentName}" returned without calling ctx.complete(). ` +
+            `Call ctx.complete(output) inside the stream's onFinish callback to close the run span.`
+          );
+        }
 
         return { result, runId, span };
       });
     } catch (err) {
       span.recordException(err as Error);
       span.setStatus({ code: 2 }); // SpanStatusCode.ERROR
-      span.end();
+      if (!outputSet) {
+        outputSet = true;
+        span.end();
+      }
       lemmaDebug("trace-wrapper", "span ended on error", { runId, error: String(err) });
       throw err;
     }
@@ -145,3 +212,8 @@ export function wrapAgent<Input = unknown>(
 
   return wrappedFunction;
 }
+
+/**
+ * @deprecated Use {@link agent} instead. `wrapAgent` will be removed in a future major version.
+ */
+export const wrapAgent = agent;

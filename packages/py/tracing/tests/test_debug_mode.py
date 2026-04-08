@@ -11,12 +11,12 @@ from uselemma_tracing import (
     disable_debug_mode,
     enable_debug_mode,
     is_debug_mode_enabled,
-    wrap_agent,
+    agent,
 )
 from uselemma_tracing.debug_mode import _lemma_debug
 
 
-def _echo(ctx, value):
+def _echo(value, ctx):
     ctx.on_complete(value)
     return value
 
@@ -104,7 +104,7 @@ class TestDebugMode:
 # wrap_agent debug logging integration
 # ---------------------------------------------------------------------------
 
-class TestWrapAgentDebugLogging:
+class TestAgentDebugLogging:
     def setup_method(self):
         disable_debug_mode()
 
@@ -115,7 +115,7 @@ class TestWrapAgentDebugLogging:
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
         enable_debug_mode()
 
-        wrapped = wrap_agent("test-agent", lambda _ctx, v: v)
+        wrapped = agent("test-agent", lambda _ctx, v: v)
         wrapped("hello")
 
         out = capsys.readouterr().out
@@ -125,7 +125,7 @@ class TestWrapAgentDebugLogging:
     def test_no_logs_when_debug_disabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
 
-        wrapped = wrap_agent("test-agent", lambda _ctx, v: v)
+        wrapped = agent("test-agent", lambda _ctx, v: v)
         wrapped("hello")
 
         out = capsys.readouterr().out
@@ -135,11 +135,11 @@ class TestWrapAgentDebugLogging:
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
         enable_debug_mode()
 
-        wrapped = wrap_agent("test-agent", _echo)
+        wrapped = agent("test-agent", _echo)
         wrapped("hello")
 
         out = capsys.readouterr().out
-        assert "on_complete called" in out
+        assert "complete called" in out
 
     def test_logs_error_end_when_debug_enabled(self, monkeypatch, capsys):
         monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _: _FakeTracer())
@@ -148,7 +148,7 @@ class TestWrapAgentDebugLogging:
         def boom(_ctx, _v):
             raise RuntimeError("boom")
 
-        wrapped = wrap_agent("test-agent", boom)
+        wrapped = agent("test-agent", boom)
         with pytest.raises(RuntimeError):
             wrapped("x")
 
@@ -162,7 +162,7 @@ class TestWrapAgentDebugLogging:
         async def handler(_ctx, v):
             return v
 
-        wrapped = wrap_agent("async-agent", handler)
+        wrapped = agent("async-agent", handler)
         await wrapped("hello")
 
         out = capsys.readouterr().out

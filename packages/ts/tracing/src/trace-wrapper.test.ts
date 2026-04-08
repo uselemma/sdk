@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { enableExperimentMode, disableExperimentMode } from "./experiment-mode";
-import { wrapAgent } from "./trace-wrapper";
+import { agent, wrapAgent } from "./trace-wrapper";
 
 const mockStartSpan = vi.fn();
 const mockEnd = vi.fn();
@@ -32,7 +32,7 @@ function createMockSpan() {
   return span;
 }
 
-describe("wrapAgent", () => {
+describe("agent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     disableExperimentMode();
@@ -44,7 +44,7 @@ describe("wrapAgent", () => {
   });
 
   it("creates span with name ai.agent.run", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
+    const wrapped = agent("demo-agent", async (v) => v);
     await wrapped("hello");
 
     expect(mockStartSpan).toHaveBeenCalledWith(
@@ -55,19 +55,23 @@ describe("wrapAgent", () => {
   });
 
   it("sets ai.agent.name attribute", async () => {
-    const wrapped = wrapAgent("my-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("my-agent", async (v) => v);
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
     expect(call[1].attributes["ai.agent.name"]).toBe("my-agent");
   });
 
+  it("auto-closes and captures return value when complete() is not called", async () => {
+    const wrapped = agent("demo-agent", async (v: string) => `out:${v}`);
+    await wrapped("hello");
+
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"out:hello"');
+  });
+
   it("sets ai.agent.input and ai.agent.output as JSON strings", async () => {
-    const wrapped = wrapAgent("my-agent", async (ctx, v: string) => {
-      ctx.onComplete(`out:${v}`);
-    });
+    const wrapped = agent("my-agent", async (v: string) => `out:${v}`);
     await wrapped("hello");
 
     expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.input", '"hello"');
@@ -75,9 +79,7 @@ describe("wrapAgent", () => {
   });
 
   it("lemma.is_experiment is false by default", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("demo-agent", async (v) => v);
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
@@ -85,9 +87,7 @@ describe("wrapAgent", () => {
   });
 
   it("lemma.is_experiment is true when isExperiment: true", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    }, {
+    const wrapped = agent("demo-agent", async (v) => v, {
       isExperiment: true,
     });
     await wrapped("x");
@@ -98,9 +98,7 @@ describe("wrapAgent", () => {
 
   it("lemma.is_experiment is true when enableExperimentMode is active", async () => {
     enableExperimentMode();
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("demo-agent", async (v) => v);
     await wrapped("x");
 
     const call = mockStartSpan.mock.calls[0];
@@ -108,9 +106,7 @@ describe("wrapAgent", () => {
   });
 
   it("invocation options override wrapper isExperiment setting", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    }, {
+    const wrapped = agent("demo-agent", async (v) => v, {
       isExperiment: true,
     });
     await wrapped("x", { isExperiment: false });
@@ -120,9 +116,7 @@ describe("wrapAgent", () => {
   });
 
   it("sets lemma.thread_id when threadId is provided in invocation options", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("demo-agent", async (v) => v);
     await wrapped("x", { threadId: "thread_123" });
 
     const call = mockStartSpan.mock.calls[0];
@@ -130,29 +124,20 @@ describe("wrapAgent", () => {
   });
 
   it("does not set lemma.thread_id for blank threadId values", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("demo-agent", async (v) => v);
     await wrapped("x", { threadId: "   " });
 
     const call = mockStartSpan.mock.calls[0];
     expect(call[1].attributes["lemma.thread_id"]).toBeUndefined();
   });
 
-  it("does not end span when fn returns without onComplete", async () => {
-    const wrapped = wrapAgent("demo-agent", async (_ctx, v) => v);
-    await wrapped("hello");
-
-    expect(mockEnd).not.toHaveBeenCalled();
-  });
-
-  it("ends span when onComplete is called, not when fn returns", async () => {
+  it("complete() ends span before fn returns; auto-complete on return is a no-op", async () => {
     let unblock!: () => void;
     const gate = new Promise<void>((resolve) => {
       unblock = resolve;
     });
-    const wrapped = wrapAgent("demo-agent", async (ctx) => {
-      ctx.onComplete("done");
+    const wrapped = agent("demo-agent", async (_input, ctx) => {
+      ctx.complete("done");
       await gate;
     });
 
@@ -165,34 +150,31 @@ describe("wrapAgent", () => {
     expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("onComplete sets output; return value ignored for output when onComplete ran", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx) => {
-      ctx.onComplete("done");
-      return "ok";
+  it("explicit complete() overrides return value as output", async () => {
+    const wrapped = agent("demo-agent", async (_input, ctx) => {
+      ctx.complete("explicit-output");
+      return "return-value";
     });
 
     await wrapped("hello");
 
-    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"done"');
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"explicit-output"');
     expect(mockEnd).toHaveBeenCalledTimes(1);
   });
 
   it("returns runId in result", async () => {
-    const wrapped = wrapAgent("demo-agent", async (ctx, v) => {
-      ctx.onComplete(v);
-    });
+    const wrapped = agent("demo-agent", async (v) => v);
     const out = await wrapped("x");
 
     expect(typeof out.runId).toBe("string");
     expect(out.runId.length).toBeGreaterThan(0);
   });
 
-  it("recordError with Error calls recordException and setStatus", async () => {
-    const wrapped = wrapAgent(
+  it("fail() with Error calls recordException and setStatus", async () => {
+    const wrapped = agent(
       "demo-agent",
-      async (ctx) => {
-        ctx.recordError(new Error("boom"));
-        ctx.onComplete("ok");
+      async (_input, ctx) => {
+        ctx.fail(new Error("boom"));
         return "ok";
       }
     );
@@ -203,12 +185,11 @@ describe("wrapAgent", () => {
     expect(mockSetStatus).toHaveBeenCalledWith({ code: 2 });
   });
 
-  it("recordError with non-Error wraps in Error", async () => {
-    const wrapped = wrapAgent(
+  it("fail() with non-Error wraps in Error", async () => {
+    const wrapped = agent(
       "demo-agent",
-      async (ctx) => {
-        ctx.recordError("not an error");
-        ctx.onComplete("ok");
+      async (_input, ctx) => {
+        ctx.fail("not an error");
         return "ok";
       }
     );
@@ -219,8 +200,25 @@ describe("wrapAgent", () => {
     expect(mockRecordException.mock.calls[0][0].message).toBe("not an error");
   });
 
-  it("agent throws - exception recorded, span ended, and error rethrown", async () => {
-    const wrapped = wrapAgent("demo-agent", async () => {
+  it("onComplete() and recordError() are deprecated aliases that still work", async () => {
+    const wrapped = agent(
+      "demo-agent",
+      async (_input, ctx) => {
+        ctx.recordError(new Error("boom"));
+        ctx.onComplete("legacy-output");
+        return "return-value";
+      }
+    );
+
+    await wrapped("x");
+
+    expect(mockRecordException).toHaveBeenCalledWith(expect.any(Error));
+    expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"legacy-output"');
+    expect(mockEnd).toHaveBeenCalledTimes(1);
+  });
+
+  it("agent throws — exception recorded, span ended, error rethrown", async () => {
+    const wrapped = agent("demo-agent", async () => {
       throw new ValueError("sync boom");
     });
 
@@ -229,6 +227,73 @@ describe("wrapAgent", () => {
     expect(mockRecordException).toHaveBeenCalledWith(expect.any(Error));
     expect(mockSetStatus).toHaveBeenCalledWith({ code: 2 });
     expect(mockEnd).toHaveBeenCalledTimes(1);
+  });
+
+  describe("streaming: true", () => {
+    it("span stays open when function returns without calling complete()", async () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const wrapped = agent("demo-agent", async (v) => v, { streaming: true });
+      const { span } = await wrapped("hello");
+
+      expect(mockEnd).not.toHaveBeenCalled();
+      expect((span as any).ended).toBeFalsy();
+      spy.mockRestore();
+    });
+
+    it("emits a console warning when streaming agent returns without complete()", async () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const wrapped = agent("streaming-agent", async (v) => v, { streaming: true });
+      await wrapped("hello");
+
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("streaming-agent"));
+      spy.mockRestore();
+    });
+
+    it("complete() closes the span and captures output in streaming mode", async () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const wrapped = agent("demo-agent", async (v: string, ctx) => {
+        ctx.complete(`out:${v}`);
+        return "stream-response";
+      }, { streaming: true });
+
+      await wrapped("hello");
+
+      expect(mockSetAttribute).toHaveBeenCalledWith("ai.agent.output", '"out:hello"');
+      expect(mockEnd).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    });
+
+    it("no console warning when complete() is called before streaming function returns", async () => {
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const wrapped = agent("demo-agent", async (v: string, ctx) => {
+        ctx.complete(v);
+        return "stream-response";
+      }, { streaming: true });
+
+      await wrapped("hello");
+
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+  });
+});
+
+describe("wrapAgent (deprecated alias)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    disableExperimentMode();
+    createMockSpan();
+  });
+
+  it("wrapAgent is identical to agent", () => {
+    expect(wrapAgent).toBe(agent);
+  });
+
+  it("still works as a drop-in replacement", async () => {
+    const wrapped = wrapAgent("demo-agent", async (v) => v);
+    const { result, runId } = await wrapped("hello");
+    expect(result).toBe("hello");
+    expect(typeof runId).toBe("string");
   });
 });
 

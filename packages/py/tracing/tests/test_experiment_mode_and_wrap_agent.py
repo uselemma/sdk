@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import warnings
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -11,12 +12,13 @@ from uselemma_tracing import (
     disable_experiment_mode,
     enable_experiment_mode,
     is_experiment_mode_enabled,
-    wrap_agent,
+    agent,
+    wrap_agent,  # deprecated alias — kept to verify backward compat
 )
 
 
-def _echo(ctx, value):
-    ctx.on_complete(value)
+def _echo(value, ctx):
+    ctx.complete(value)
     return value
 
 
@@ -62,14 +64,14 @@ class _FakeTracer:
         return span
 
 
-def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkeypatch):
+def test_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
     disable_experiment_mode()
     assert is_experiment_mode_enabled() is False
 
-    wrapped = wrap_agent("demo-agent", _echo, is_experiment=False)
+    wrapped = agent("demo-agent", _echo, is_experiment=False)
     result, _run_id, _span = wrapped("hello")
     assert result == "hello"
     assert tracer.last_name == "ai.agent.run"
@@ -78,7 +80,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     assert tracer.last_attributes["ai.agent.name"] == "demo-agent"
     assert tracer.last_attributes["lemma.is_experiment"] is False
 
-    wrapped_local = wrap_agent("demo-agent", _echo, is_experiment=True)
+    wrapped_local = agent("demo-agent", _echo, is_experiment=True)
     wrapped_local("hello")
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
@@ -90,7 +92,7 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     enable_experiment_mode()
     assert is_experiment_mode_enabled() is True
 
-    wrapped_global = wrap_agent("demo-agent", _echo, is_experiment=False)
+    wrapped_global = agent("demo-agent", _echo, is_experiment=False)
     wrapped_global("hello")
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.is_experiment"] is True
@@ -98,78 +100,80 @@ def test_wrap_agent_uses_root_ai_agent_run_and_global_or_local_experiment(monkey
     disable_experiment_mode()
 
 
-def test_wrap_agent_sets_thread_id_from_invocation_options(monkeypatch):
+def test_agent_sets_thread_id_from_invocation_options(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    wrapped = wrap_agent("demo-agent", _echo)
+    wrapped = agent("demo-agent", _echo)
     wrapped("hello", {"thread_id": "thread_123"})
 
     assert tracer.last_attributes is not None
     assert tracer.last_attributes["lemma.thread_id"] == "thread_123"
 
 
-def test_wrap_agent_ignores_empty_thread_id_from_invocation_options(monkeypatch):
+def test_agent_ignores_empty_thread_id_from_invocation_options(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    wrapped = wrap_agent("demo-agent", _echo)
+    wrapped = agent("demo-agent", _echo)
     wrapped("hello", {"thread_id": "   "})
 
     assert tracer.last_attributes is not None
     assert "lemma.thread_id" not in tracer.last_attributes
 
 
-def test_span_stays_open_without_on_complete(monkeypatch):
+def test_span_auto_closes_and_captures_return_value(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    wrapped = wrap_agent("demo-agent", lambda _ctx, value: value)
-    _, _, span = wrapped("hello")
-    assert span.ended is False
+    wrapped = agent("demo-agent", lambda value, _ctx: value)
+    res = wrapped("hello")
+    assert res.result == "hello"
+    assert res.span.ended is True
+    assert res.span.attributes.get("ai.agent.output") == '"hello"'
 
 
-def test_on_complete_sets_output_span_still_ends_once(monkeypatch):
+def test_explicit_complete_overrides_return_value(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    def handler(ctx, value):
-        ctx.on_complete("done")
+    def handler(value, ctx):
+        ctx.complete("explicit-output")
         return value
 
-    wrapped = wrap_agent("demo-agent", handler)
+    wrapped = agent("demo-agent", handler)
     _, _, span = wrapped("hello")
-    assert span.attributes.get("ai.agent.output") == '"done"'
+    assert span.attributes.get("ai.agent.output") == '"explicit-output"'
     assert span.ended is True
 
 
-def test_on_complete_called_twice_first_output_wins(monkeypatch):
+def test_complete_called_twice_first_output_wins(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    def handler(ctx, value):
-        ctx.on_complete("a")
-        ctx.on_complete("b")
+    def handler(value, ctx):
+        ctx.complete("a")
+        ctx.complete("b")
         return value
 
-    wrapped = wrap_agent("demo-agent", handler)
+    wrapped = agent("demo-agent", handler)
     _, _, span = wrapped("hello")
     assert span.attributes.get("ai.agent.output") == '"a"'
     assert span.ended is True
 
 
-async def test_on_complete_ends_span_before_fn_returns(monkeypatch):
+async def test_complete_ends_span_before_fn_returns(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
     gate = asyncio.Event()
 
-    async def async_handler(ctx, value):
-        ctx.on_complete("done")
+    async def async_handler(value, ctx):
+        ctx.complete("done")
         await gate.wait()
         return value
 
-    wrapped = wrap_agent("async-agent", async_handler)
+    wrapped = agent("async-agent", async_handler)
     task = asyncio.create_task(wrapped("hello"))
     await asyncio.sleep(0)
     assert tracer.last_span is not None
@@ -178,33 +182,32 @@ async def test_on_complete_ends_span_before_fn_returns(monkeypatch):
     await task
 
 
-async def test_wrap_agent_async_agent(monkeypatch):
+async def test_agent_async(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    async def async_handler(ctx, value):
-        out = value.upper()
-        ctx.on_complete(out)
-        return out
+    async def async_handler(value, _ctx):
+        return value.upper()
 
-    wrapped = wrap_agent("async-agent", async_handler)
+    wrapped = agent("async-agent", async_handler)
     result, run_id, span = await wrapped("hello")
     assert result == "HELLO"
     assert isinstance(run_id, str)
     assert tracer.last_name == "ai.agent.run"
     assert tracer.last_attributes["ai.agent.name"] == "async-agent"
+    assert span.ended is True
+    assert span.attributes.get("ai.agent.output") == '"HELLO"'
 
 
-def test_record_error_records_exception_and_sets_status(monkeypatch):
+def test_fail_records_exception_and_sets_status(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    def handler(ctx, _value):
-        ctx.record_error(Exception("boom"))
-        ctx.on_complete("ok")
+    def handler(_value, ctx):
+        ctx.fail(Exception("boom"))
         return "ok"
 
-    wrapped = wrap_agent("demo-agent", handler)
+    wrapped = agent("demo-agent", handler)
     result, _, span = wrapped("x")
     assert result == "ok"
     assert len(span.record_exception_calls) == 1
@@ -212,16 +215,15 @@ def test_record_error_records_exception_and_sets_status(monkeypatch):
     assert len(span.set_status_calls) == 1
 
 
-def test_record_error_wraps_non_exception_in_exception(monkeypatch):
+def test_fail_wraps_non_exception_in_exception(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    def handler(ctx, _value):
-        ctx.record_error("not an exception")
-        ctx.on_complete("ok")
+    def handler(_value, ctx):
+        ctx.fail("not an exception")
         return "ok"
 
-    wrapped = wrap_agent("demo-agent", handler)
+    wrapped = agent("demo-agent", handler)
     result, _, span = wrapped("x")
     assert result == "ok"
     assert len(span.record_exception_calls) == 1
@@ -229,7 +231,24 @@ def test_record_error_wraps_non_exception_in_exception(monkeypatch):
     assert str(span.record_exception_calls[0]) == "not an exception"
 
 
-def test_wrap_agent_sync_error_path(monkeypatch):
+def test_deprecated_on_complete_and_record_error_still_work(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(_value, ctx):
+        ctx.record_error(Exception("boom"))
+        ctx.on_complete("legacy-output")
+        return "return-value"
+
+    wrapped = agent("demo-agent", handler)
+    result, _, span = wrapped("x")
+    assert result == "return-value"
+    assert span.attributes.get("ai.agent.output") == '"legacy-output"'
+    assert len(span.record_exception_calls) == 1
+    assert span.ended is True
+
+
+def test_agent_sync_error_path(monkeypatch):
     tracer = _FakeTracer()
     spans_created = []
 
@@ -241,10 +260,10 @@ def test_wrap_agent_sync_error_path(monkeypatch):
     tracer.start_span = capturing_start_span
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    def handler(_ctx, _value):
+    def handler(_value, _ctx):
         raise ValueError("sync boom")
 
-    wrapped = wrap_agent("demo-agent", handler)
+    wrapped = agent("demo-agent", handler)
     with pytest.raises(ValueError, match="sync boom"):
         wrapped("x")
 
@@ -255,14 +274,14 @@ def test_wrap_agent_sync_error_path(monkeypatch):
     assert spans_created[0].ended is True
 
 
-async def test_wrap_agent_async_error_path(monkeypatch):
+async def test_agent_async_error_path(monkeypatch):
     tracer = _FakeTracer()
     monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
 
-    async def handler(_ctx, _value):
+    async def handler(_value, _ctx):
         raise RuntimeError("async boom")
 
-    wrapped = wrap_agent("async-agent", handler)
+    wrapped = agent("async-agent", handler)
     spans_created = []
 
     def capturing_start_span(name, *, context=None, attributes=None):
@@ -279,3 +298,83 @@ async def test_wrap_agent_async_error_path(monkeypatch):
     assert len(spans_created[0].record_exception_calls) == 1
     assert "async boom" in str(spans_created[0].record_exception_calls[0])
     assert spans_created[0].ended is True
+
+
+# ---------------------------------------------------------------------------
+# Streaming mode
+# ---------------------------------------------------------------------------
+
+def test_streaming_span_stays_open_until_complete(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wrapped = agent("demo-agent", lambda value, _ctx: value, streaming=True)
+        res = wrapped("hello")
+
+    assert res.result == "hello"
+    assert res.span.ended is False
+    assert res.span.attributes.get("ai.agent.output") is None
+
+
+def test_streaming_complete_closes_span(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(value, ctx):
+        ctx.complete(f"out:{value}")
+        return value
+
+    wrapped = agent("demo-agent", handler, streaming=True)
+    _, _, span = wrapped("hello")
+    assert span.attributes.get("ai.agent.output") == '"out:hello"'
+    assert span.ended is True
+
+
+def test_streaming_emits_warning_when_complete_not_called(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    wrapped = agent("streaming-agent", lambda value, _ctx: value, streaming=True)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        wrapped("hello")
+        assert len(w) == 1
+        assert "streaming-agent" in str(w[0].message)
+
+
+def test_streaming_no_warning_when_complete_is_called(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    def handler(value, ctx):
+        ctx.complete(value)
+        return value
+
+    wrapped = agent("streaming-agent", handler, streaming=True)
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        wrapped("hello")
+        assert len(w) == 0
+
+
+# ---------------------------------------------------------------------------
+# Backward compatibility — wrap_agent is a deprecated alias for agent
+# ---------------------------------------------------------------------------
+
+def test_wrap_agent_deprecated_alias_still_works(monkeypatch):
+    tracer = _FakeTracer()
+    monkeypatch.setattr("uselemma_tracing.trace_wrapper.trace.get_tracer", lambda _name: tracer)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        wrapped = wrap_agent("demo-agent", _echo)
+        assert len(w) == 1
+        assert issubclass(w[0].category, DeprecationWarning)
+        assert "wrap_agent" in str(w[0].message)
+
+    result, run_id, span = wrapped("hello")
+    assert result == "hello"
+    assert isinstance(run_id, str)
+    assert span.ended is True

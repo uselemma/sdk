@@ -20,38 +20,47 @@ import { registerOTel } from "@uselemma/tracing";
 registerOTel();
 ```
 
-You can also enable experiment mode globally for the process:
-
-```typescript
-import { enableExperimentMode } from "@uselemma/tracing";
-
-enableExperimentMode();
-```
-
 ### 2. Wrap your agent
 
-`wrapAgent` creates a root OpenTelemetry span named `ai.agent.run` and records:
-- `ai.agent.name`
-- `lemma.run_id`
-- `lemma.is_experiment`
-- `lemma.thread_id` (when `threadId` is passed at invocation time)
+`agent` creates a root OpenTelemetry span named `ai.agent.run`. Return a value from the wrapped function — the wrapper auto-captures it as `ai.agent.output` and closes the span automatically.
 
 ```typescript
-import { wrapAgent } from "@uselemma/tracing";
+import { agent } from "@uselemma/tracing";
 
-const wrappedFn = wrapAgent(
+const myAgent = agent(
   "my-agent",
-  async ({ onComplete }, { userMessage }: { userMessage: string }) => {
-    const result = await doWork(userMessage);
-    onComplete(result);
-    return result;
+  async (input: { userMessage: string }) => {
+    const result = await doWork(input.userMessage);
+    return result; // wrapper auto-captures output and closes the span
   },
 );
 
-const { result, runId } = await wrappedFn(
-  { userMessage },
-  { threadId: "thread_123", isExperiment: false },
+const { result, runId } = await myAgent(
+  { userMessage: "hello" },
+  { threadId: "thread_123" }, // optional: link multi-turn runs
 );
+```
+
+### 3. Add child spans (optional)
+
+Use the typed helpers to add spans for internal functions:
+
+```typescript
+import { agent, tool, retrieval, llm, trace } from "@uselemma/tracing";
+
+const search = retrieval("vector-search", async (query: string) => {
+  return vectorDB.search(query, { topK: 5 });
+});
+
+const lookupOrder = tool("lookup-order", async (orderId: string) => {
+  return db.orders.findById(orderId);
+});
+
+const agent = agent("rag-agent", async (input: string) => {
+  const docs = await search(input);   // retrieval.vector-search span
+  const context = docs.join("\n");
+  return generateAnswer(context, input);
+});
 ```
 
 ## Export Behavior
@@ -72,8 +81,9 @@ Both are required unless passed explicitly to `registerOTel()`.
 
 ## Documentation
 
+- [Quickstart](https://docs.uselemma.ai/getting-started/quickstart) — first trace in 2 minutes
 - [Tracing Overview](https://docs.uselemma.ai/tracing/overview) — concepts, API reference, and usage patterns
-- [Vercel AI SDK Integration](https://docs.uselemma.ai/tracing/integrations/vercel-ai-sdk) — framework setup, streaming, and examples
+- [Vercel AI SDK](https://docs.uselemma.ai/integrations/vercel-ai-sdk) — framework setup, streaming, and examples
 
 ## License
 

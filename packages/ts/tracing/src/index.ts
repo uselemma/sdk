@@ -16,8 +16,15 @@ export {
   isDebugModeEnabled,
 } from "./debug-mode";
 export {
-  wrapAgent,
+  agent,
+  wrapAgent, // @deprecated — use agent instead
   type TraceContext,
   type WrapAgentOptions,
   type WrapRunOptions,
 } from "./trace-wrapper";
+export {
+  trace,
+  tool,
+  llm,
+  retrieval,
+} from "./span-helpers";

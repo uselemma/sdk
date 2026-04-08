@@ -14,7 +14,7 @@ import random
 
 from agents import Agent, Runner, function_tool
 from dotenv import load_dotenv
-from uselemma_tracing import TraceContext, instrument_openai_agents, wrap_agent
+from uselemma_tracing import TraceContext, instrument_openai_agents, agent
 
 load_dotenv()
 
@@ -120,14 +120,14 @@ triage_agent = Agent(
 )
 
 
-async def run_agent(ctx: TraceContext, user_message: str) -> str:
+async def run_agent(user_message: str, ctx: TraceContext) -> str:
     result = await Runner.run(triage_agent, user_message)
     ctx.on_complete(result.final_output)
     return result.final_output
 
 
 async def main():
-    wrapped = wrap_agent("triage-support-agent", run_agent)
+    wrapped = agent("triage-support-agent", run_agent)
 
     test_requests = [
         "My monthly invoice looks too high. How can I review charges and request a refund?",

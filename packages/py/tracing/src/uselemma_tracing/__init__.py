@@ -1,5 +1,6 @@
 from .register import create_lemma_span_processor, register_otel
-from .trace_wrapper import TraceContext, wrap_agent, RunContext, lemma_run
+from .trace_wrapper import TraceContext, TraceResult, agent, wrap_agent, RunContext, lemma_run
+from .span_helpers import trace, tool, llm, retrieval
 from .instrument_anthropic import instrument_anthropic
 from .instrument_openai import instrument_openai
 from .instrument_openai_agents import instrument_openai_agents
@@ -17,13 +18,23 @@ from .debug_mode import (
 __all__ = [
     "create_lemma_span_processor",
     "register_otel",
-    "wrap_agent",
+    # Primary API
+    "agent",
     "TraceContext",
-    "lemma_run",
+    "TraceResult",
     "RunContext",
+    "trace",
+    "tool",
+    "llm",
+    "retrieval",
+    # Deprecated aliases
+    "wrap_agent",
+    "lemma_run",
+    # Instrumentation helpers
     "instrument_anthropic",
     "instrument_openai",
     "instrument_openai_agents",
+    # Mode flags
     "enable_experiment_mode",
     "disable_experiment_mode",
     "is_experiment_mode_enabled",
