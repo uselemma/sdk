@@ -1,10 +1,10 @@
 [project]
 name = "uselemma-experiments"
-version = "0.1.0"
+version = "0.1.1"
 description = "Experiment runner for Lemma — fetch test cases, run agents, record results"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 keywords = ["lemma", "experiments", "llm", "evaluation"]
 dependencies = [
     "httpx>=0.27",

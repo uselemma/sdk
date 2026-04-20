@@ -1,10 +1,10 @@
 [project]
 name = "uselemma-tracing"
-version = "3.0.5"
+version = "3.0.6"
 description = "OpenTelemetry-based tracing module for Lemma"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 keywords = ["opentelemetry", "tracing", "observability", "monitoring", "llm", "instrumentation"]
 dependencies = [
     "opentelemetry-api>=1.28.0",
