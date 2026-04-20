@@ -17,6 +17,7 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
 openai = ["openinference-instrumentation-openai>=0.1.0"]
 anthropic = ["openinference-instrumentation-anthropic>=0.1.0"]
 openai-agents = ["openinference-instrumentation-openai-agents>=0.1.0"]
+langchain = ["openinference-instrumentation-langchain>=0.1.0"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -27,6 +28,7 @@ source = ["src/uselemma_tracing"]
 omit = [
     "*/register.py",
     "*/instrument_anthropic.py",
+    "*/instrument_langchain.py",
     "*/instrument_openai.py",
     "*/instrument_openai_agents.py",
 ]

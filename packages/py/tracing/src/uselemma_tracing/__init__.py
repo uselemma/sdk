@@ -2,6 +2,7 @@ from .register import create_lemma_span_processor, register_otel
 from .trace_wrapper import TraceContext, TraceResult, agent, wrap_agent, RunContext, lemma_run
 from .span_helpers import trace, tool, llm, retrieval
 from .instrument_anthropic import instrument_anthropic
+from .instrument_langchain import instrument_langchain
 from .instrument_openai import instrument_openai
 from .instrument_openai_agents import instrument_openai_agents
 from .experiment_mode import (
@@ -32,6 +33,7 @@ __all__ = [
     "lemma_run",
     # Instrumentation helpers
     "instrument_anthropic",
+    "instrument_langchain",
     "instrument_openai",
     "instrument_openai_agents",
     # Mode flags
