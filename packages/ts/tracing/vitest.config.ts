@@ -5,7 +5,7 @@ export default defineConfig({
     globals: true,
     coverage: {
       provider: "v8",
-      include: ["src/run-batch-span-processor.ts", "src/trace-wrapper.ts", "src/experiment-mode.ts"],
+      include: ["src/client.ts", "src/experiment-mode.ts", "src/debug-mode.ts"],
       exclude: ["**/*.test.ts", "**/*.config.ts"],
       thresholds: {
         statements: 100,

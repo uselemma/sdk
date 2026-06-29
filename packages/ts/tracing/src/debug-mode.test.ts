@@ -46,9 +46,9 @@ describe("debug-mode", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     enableDebugMode();
 
-    lemmaDebug("trace-wrapper", "span started", { runId: "abc" });
+    lemmaDebug("client", "trace started", { runId: "abc" });
 
-    expect(spy).toHaveBeenCalledWith("[LEMMA:trace-wrapper] span started", { runId: "abc" });
+    expect(spy).toHaveBeenCalledWith("[LEMMA:client] trace started", { runId: "abc" });
     spy.mockRestore();
   });
 
@@ -65,14 +65,14 @@ describe("debug-mode", () => {
   it("lemmaDebug does NOT log when disabled", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    lemmaDebug("trace-wrapper", "span started", { runId: "abc" });
+    lemmaDebug("client", "trace started", { runId: "abc" });
 
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });
 
-describe("wrapAgent debug logging", () => {
+describe("client debug logging", () => {
   beforeEach(() => {
     disableDebugMode();
   });
@@ -85,10 +85,10 @@ describe("wrapAgent debug logging", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     process.env["LEMMA_DEBUG"] = "true";
 
-    lemmaDebug("trace-wrapper", "span started", { agentName: "test", runId: "xyz" });
+    lemmaDebug("client", "trace started", { agentName: "test", runId: "xyz" });
 
     expect(spy).toHaveBeenCalledWith(
-      "[LEMMA:trace-wrapper] span started",
+      "[LEMMA:client] trace started",
       { agentName: "test", runId: "xyz" }
     );
 
@@ -101,7 +101,7 @@ describe("wrapAgent debug logging", () => {
     enableDebugMode();
     process.env["LEMMA_DEBUG"] = "true";
 
-    lemmaDebug("processor", "onStart: top-level run span", { runId: "r1" });
+    lemmaDebug("client", "trace queued for ingest", { runId: "r1" });
 
     expect(spy).toHaveBeenCalledTimes(1);
 
