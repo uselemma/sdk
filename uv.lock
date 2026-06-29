@@ -1747,7 +1747,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "uselemma-tracing"
-version = "4.0.1"
+version = "4.1.0"
 source = { editable = "packages/py/tracing" }
 
 [package.optional-dependencies]
