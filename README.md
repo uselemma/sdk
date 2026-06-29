@@ -7,10 +7,10 @@ directly to Lemma over HTTP.
 
 ## Packages
 
-| Package | Language | Current version | Path |
-| --- | --- | --- | --- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.0.1` | `packages/ts/tracing` |
-| [`uselemma-tracing`](packages/py/tracing) | Python | `4.0.1` | `packages/py/tracing` |
+| Package                                    | Language             | Current version | Path                  |
+| ------------------------------------------ | -------------------- | --------------- | --------------------- |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.0.1`         | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing)  | Python               | `4.0.1`         | `packages/py/tracing` |
 
 ## Install
 
@@ -214,6 +214,38 @@ callback: `onEnd` in v7 and `onFinish` in v6. When you use the callback form of
 The integration records model calls as generations and tool executions as tool
 spans. Use `vercelAI({ recordInputs: false, recordOutputs: false })` to avoid
 sending prompts, tool inputs, tool outputs, and generated text.
+
+## OpenAI Agents SDK
+
+TypeScript:
+
+```typescript
+import { addTraceProcessor } from "@openai/agents";
+import { openAIAgents } from "@uselemma/tracing";
+
+addTraceProcessor(openAIAgents());
+```
+
+Python:
+
+```bash
+pip install "uselemma-tracing[openai-agents]" openai-agents
+```
+
+```python
+from uselemma_tracing import instrument_openai_agents
+
+instrument_openai_agents()
+```
+
+The processor sends one Lemma trace per OpenAI Agents trace. Generation spans
+are recorded as Lemma generations, function spans are recorded as Lemma tool
+spans, and parent IDs are preserved so tools stay nested under the generation
+or agent span that called them.
+
+Use `openAIAgents({ recordInputs: false, recordOutputs: false })` in
+TypeScript or `openai_agents(record_inputs=False, record_outputs=False)` in
+Python to avoid sending prompts, tool inputs, tool outputs, and generated text.
 
 ## Python Quick Start
 

@@ -5,7 +5,7 @@ import {
 } from "node:http";
 import { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { Lemma, vercelAI } from "./index";
+import { Lemma, openAIAgents, vercelAI } from "./index";
 
 type CapturedRequest = {
   method: string | undefined;
@@ -123,7 +123,52 @@ describe("HTTP tracing integration", () => {
     } as never);
     await integration.onEnd?.({ text: "hello" });
 
-    expect(ingest.requests).toHaveLength(4);
+    const openAIProcessor = openAIAgents({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      baseUrl: ingest.baseUrl,
+    });
+    await openAIProcessor.onTraceStart({
+      traceId: "trace_openai",
+      name: "openai-agents-trace",
+    });
+    await openAIProcessor.onSpanStart({
+      traceId: "trace_openai",
+      spanId: "span_openai_generation",
+      spanData: { type: "generation", model: "gpt-4o" },
+    });
+    await openAIProcessor.onSpanStart({
+      traceId: "trace_openai",
+      spanId: "span_openai_tool",
+      parentId: "span_openai_generation",
+      spanData: { type: "function", name: "lookup", input: "{}" },
+    });
+    await openAIProcessor.onSpanEnd({
+      traceId: "trace_openai",
+      spanId: "span_openai_tool",
+      parentId: "span_openai_generation",
+      spanData: {
+        type: "function",
+        name: "lookup",
+        input: "{}",
+        output: '{"ok":true}',
+      },
+    });
+    await openAIProcessor.onSpanEnd({
+      traceId: "trace_openai",
+      spanId: "span_openai_generation",
+      spanData: {
+        type: "generation",
+        model: "gpt-4o",
+        output: [{ role: "assistant", content: "hello" }],
+      },
+    });
+    await openAIProcessor.onTraceEnd({
+      traceId: "trace_openai",
+      name: "openai-agents-trace",
+    });
+
+    expect(ingest.requests).toHaveLength(5);
     for (const request of ingest.requests) {
       expect(request.method).toBe("POST");
       expect(request.url).toBe("/traces/ingest");
@@ -161,5 +206,24 @@ describe("HTTP tracing integration", () => {
       model: "gpt-4o",
       duration_ms: 12,
     });
+
+    expect(ingest.requests[4].body.trace).toMatchObject({
+      name: "openai-agents-trace",
+    });
+    expect(ingest.requests[4].body.trace.spans).toMatchObject([
+      {
+        id: "span_openai_generation",
+        name: "openai-agents-generation",
+        type: "generation",
+        model: "gpt-4o",
+      },
+      {
+        id: "span_openai_tool",
+        parent_id: "span_openai_generation",
+        name: "lookup",
+        type: "tool",
+        output: { ok: true },
+      },
+    ]);
   });
 });

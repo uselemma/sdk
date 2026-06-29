@@ -55,9 +55,30 @@ def _compact(payload: dict[str, Any]) -> dict[str, Any]:
 def _duration_ms(
     start: datetime | str | None, end: datetime | str | None
 ) -> int | None:
+    if isinstance(start, str):
+        start = _parse_datetime(start)
+    if isinstance(end, str):
+        end = _parse_datetime(end)
     if not isinstance(start, datetime) or not isinstance(end, datetime):
         return None
     return max(0, int((end - start).total_seconds() * 1000))
+
+
+def _datetime_or_now(value: datetime | str | None) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        parsed = _parse_datetime(value)
+        if parsed is not None:
+            return parsed
+    return _now()
+
+
+def _parse_datetime(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 def _debug_span_summary(
@@ -213,9 +234,19 @@ class SpanHandle:
     name: str
     input: Any = None
     metadata: dict[str, Any] | None = None
+    attributes: dict[str, Any] | None = None
     type: SpanType = "span"
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    parent_id: str | None = None
     started_at: datetime = field(default_factory=_now)
+    model: str | None = None
+    usage: Usage | None = None
+    tool_name: str | None = None
+    llm_provider: str | None = None
+    llm_invocation_parameters: Any = None
+    llm_input_messages: list[Any] | None = None
+    llm_tools: Any = None
+    payload: dict[str, Any] | None = None
     ended: bool = False
 
     def end(
@@ -225,8 +256,15 @@ class SpanHandle:
         duration_ms: int | None = None,
         status: Status | None = None,
         error: Any = None,
+        ended_at: datetime | str | None = None,
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
+        model: str | None = None,
+        usage: Usage | None = None,
+        tool_name: str | None = None,
+        llm_provider: str | None = None,
+        llm_invocation_parameters: Any = None,
+        llm_output_messages: list[Any] | None = None,
         input_mime_type: str | None = None,
         output_mime_type: str | None = None,
         retrieval_documents: list[Any] | None = None,
@@ -240,14 +278,26 @@ class SpanHandle:
         if self.ended:
             return
         self.ended = True
-        self.trace.record_span(
+        span = self.trace._build_span(
             name=self.name,
             input=self.input,
             output=output,
             metadata=metadata or self.metadata,
-            attributes=attributes,
+            attributes=attributes or self.attributes,
+            model=model or self.model,
+            usage=usage or self.usage,
+            tool_name=tool_name or self.tool_name,
             input_mime_type=input_mime_type,
             output_mime_type=output_mime_type,
+            llm_provider=llm_provider or self.llm_provider,
+            llm_invocation_parameters=(
+                llm_invocation_parameters
+                if llm_invocation_parameters is not None
+                else self.llm_invocation_parameters
+            ),
+            llm_input_messages=self.llm_input_messages,
+            llm_output_messages=llm_output_messages,
+            llm_tools=self.llm_tools,
             retrieval_documents=retrieval_documents,
             embedding_model_name=embedding_model_name,
             embedding_invocation_parameters=embedding_invocation_parameters,
@@ -259,11 +309,18 @@ class SpanHandle:
             error=error,
             id=self.id,
             started_at=self.started_at,
-            ended_at=_now(),
+            ended_at=ended_at or _now(),
             duration_ms=duration_ms,
+            parent_id=self.parent_id,
             type=self.type,
-            _debug_event="span ended",
         )
+        if self.payload is None:
+            self.trace.spans.append(span)
+            self.payload = span
+        else:
+            self.payload.clear()
+            self.payload.update(span)
+        self.trace._debug_span("span ended", self.payload)
 
 
 @dataclass
@@ -301,8 +358,16 @@ class TraceContext:
         output: Any = None,
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
+        model: str | None = None,
+        usage: Usage | None = None,
+        tool_name: str | None = None,
         input_mime_type: str | None = None,
         output_mime_type: str | None = None,
+        llm_provider: str | None = None,
+        llm_invocation_parameters: Any = None,
+        llm_input_messages: list[Any] | None = None,
+        llm_output_messages: list[Any] | None = None,
+        llm_tools: Any = None,
         retrieval_documents: list[Any] | None = None,
         embedding_model_name: str | None = None,
         embedding_invocation_parameters: Any = None,
@@ -320,9 +385,78 @@ class TraceContext:
         type: SpanType = "span",
         _debug_event: str = "span recorded",
     ) -> None:
+        span = self._build_span(
+            name=name,
+            input=input,
+            output=output,
+            metadata=metadata,
+            attributes=attributes,
+            model=model,
+            usage=usage,
+            tool_name=tool_name,
+            input_mime_type=input_mime_type,
+            output_mime_type=output_mime_type,
+            llm_provider=llm_provider,
+            llm_invocation_parameters=llm_invocation_parameters,
+            llm_input_messages=llm_input_messages,
+            llm_output_messages=llm_output_messages,
+            llm_tools=llm_tools,
+            retrieval_documents=retrieval_documents,
+            embedding_model_name=embedding_model_name,
+            embedding_invocation_parameters=embedding_invocation_parameters,
+            embedding_embeddings=embedding_embeddings,
+            reranker_model_name=reranker_model_name,
+            reranker_input_documents=reranker_input_documents,
+            reranker_output_documents=reranker_output_documents,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_ms=duration_ms,
+            status=status,
+            error=error,
+            id=id,
+            parent_id=parent_id,
+            type=type,
+        )
+        self.spans.append(span)
+        self._debug_span(_debug_event, span)
+
+    def _build_span(
+        self,
+        *,
+        name: str,
+        input: Any = None,
+        output: Any = None,
+        metadata: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+        model: str | None = None,
+        usage: Usage | None = None,
+        tool_name: str | None = None,
+        input_mime_type: str | None = None,
+        output_mime_type: str | None = None,
+        llm_provider: str | None = None,
+        llm_invocation_parameters: Any = None,
+        llm_input_messages: list[Any] | None = None,
+        llm_output_messages: list[Any] | None = None,
+        llm_tools: Any = None,
+        retrieval_documents: list[Any] | None = None,
+        embedding_model_name: str | None = None,
+        embedding_invocation_parameters: Any = None,
+        embedding_embeddings: Any = None,
+        reranker_model_name: str | None = None,
+        reranker_input_documents: list[Any] | None = None,
+        reranker_output_documents: list[Any] | None = None,
+        started_at: datetime | str | None = None,
+        ended_at: datetime | str | None = None,
+        duration_ms: int | None = None,
+        status: Status | None = None,
+        error: Any = None,
+        id: str | None = None,
+        parent_id: str | None = None,
+        type: SpanType = "span",
+    ) -> dict[str, Any]:
         started = started_at or _now()
         ended = ended_at or _now()
-        span = _compact(
+        return _compact(
             {
                 "id": id,
                 "parent_id": parent_id,
@@ -333,8 +467,15 @@ class TraceContext:
                 "metadata": metadata,
                 "attributes": _span_attributes(
                     attributes,
+                    model=model,
+                    usage=usage,
                     input_mime_type=input_mime_type,
                     output_mime_type=output_mime_type,
+                    llm_provider=llm_provider,
+                    llm_invocation_parameters=llm_invocation_parameters,
+                    llm_input_messages=llm_input_messages,
+                    llm_output_messages=llm_output_messages,
+                    llm_tools=llm_tools,
                     retrieval_documents=retrieval_documents,
                     embedding_model_name=embedding_model_name,
                     embedding_invocation_parameters=embedding_invocation_parameters,
@@ -348,10 +489,11 @@ class TraceContext:
                 "duration_ms": duration_ms,
                 "status": status or ("ERROR" if error else None),
                 "error": _error_message(error),
+                "model": model,
+                "usage": usage,
+                "tool_name": tool_name,
             }
         )
-        self.spans.append(span)
-        self._debug_span(_debug_event, span)
 
     record_span = span
 
@@ -475,18 +617,38 @@ class TraceContext:
         name: str,
         input: Any = None,
         metadata: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+        id: str | None = None,
+        parent_id: str | None = None,
+        started_at: datetime | str | None = None,
     ) -> SpanHandle:
-        handle = SpanHandle(trace=self, name=name, input=input, metadata=metadata)
-        self._debug_span(
-            "span started",
+        handle = SpanHandle(
+            trace=self,
+            name=name,
+            input=input,
+            metadata=metadata,
+            attributes=attributes,
+            id=id or str(uuid.uuid4()),
+            parent_id=parent_id,
+            started_at=_datetime_or_now(started_at),
+        )
+        handle.payload = _compact(
             {
                 "id": handle.id,
+                "parent_id": parent_id,
                 "name": name,
                 "type": "span",
                 "input": input,
                 "metadata": metadata,
+                "attributes": attributes,
                 "started_at": _iso(handle.started_at),
-            },
+                "ended_at": None,
+            }
+        )
+        self.spans.append(handle.payload)
+        self._debug_span(
+            "span started",
+            handle.payload,
         )
         return handle
 
@@ -496,24 +658,61 @@ class TraceContext:
         name: str,
         input: Any = None,
         metadata: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+        id: str | None = None,
+        parent_id: str | None = None,
+        started_at: datetime | str | None = None,
+        model: str | None = None,
+        usage: Usage | None = None,
+        llm_provider: str | None = None,
+        llm_invocation_parameters: Any = None,
+        llm_input_messages: list[Any] | None = None,
+        llm_tools: Any = None,
     ) -> SpanHandle:
         handle = SpanHandle(
             trace=self,
             name=name,
             input=input,
             metadata=metadata,
+            attributes=attributes,
             type="generation",
+            id=id or str(uuid.uuid4()),
+            parent_id=parent_id,
+            started_at=_datetime_or_now(started_at),
+            model=model,
+            usage=usage,
+            llm_provider=llm_provider,
+            llm_invocation_parameters=llm_invocation_parameters,
+            llm_input_messages=llm_input_messages,
+            llm_tools=llm_tools,
         )
-        self._debug_span(
-            "span started",
+        handle.payload = _compact(
             {
                 "id": handle.id,
+                "parent_id": parent_id,
                 "name": name,
                 "type": "generation",
                 "input": input,
                 "metadata": metadata,
+                "attributes": _span_attributes(
+                    attributes,
+                    model=model,
+                    usage=usage,
+                    llm_provider=llm_provider,
+                    llm_invocation_parameters=llm_invocation_parameters,
+                    llm_input_messages=llm_input_messages,
+                    llm_tools=llm_tools,
+                ),
+                "model": model,
+                "usage": usage,
                 "started_at": _iso(handle.started_at),
-            },
+                "ended_at": None,
+            }
+        )
+        self.spans.append(handle.payload)
+        self._debug_span(
+            "span started",
+            handle.payload,
         )
         return handle
 
@@ -523,24 +722,42 @@ class TraceContext:
         name: str,
         input: Any = None,
         metadata: dict[str, Any] | None = None,
+        attributes: dict[str, Any] | None = None,
+        id: str | None = None,
+        parent_id: str | None = None,
+        started_at: datetime | str | None = None,
+        tool_name: str | None = None,
     ) -> SpanHandle:
         handle = SpanHandle(
             trace=self,
             name=name,
             input=input,
             metadata=metadata,
+            attributes=attributes,
             type="tool",
+            id=id or str(uuid.uuid4()),
+            parent_id=parent_id,
+            started_at=_datetime_or_now(started_at),
+            tool_name=tool_name,
         )
-        self._debug_span(
-            "span started",
+        handle.payload = _compact(
             {
                 "id": handle.id,
+                "parent_id": parent_id,
                 "name": name,
                 "type": "tool",
                 "input": input,
                 "metadata": metadata,
+                "attributes": _span_attributes(attributes),
+                "tool_name": tool_name,
                 "started_at": _iso(handle.started_at),
-            },
+                "ended_at": None,
+            }
+        )
+        self.spans.append(handle.payload)
+        self._debug_span(
+            "span started",
+            handle.payload,
         )
         return handle
 

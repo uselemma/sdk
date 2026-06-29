@@ -101,6 +101,47 @@ response = call_model(messages)
 generation.end(output=response.text)
 ```
 
+## OpenAI Agents SDK
+
+Install the OpenAI Agents extra and register the Lemma processor:
+
+```bash
+pip install "uselemma-tracing[openai-agents]" openai-agents
+```
+
+```python
+from agents import Agent, Runner
+from uselemma_tracing import instrument_openai_agents
+
+instrument_openai_agents()
+
+agent = Agent(
+    name="support-agent",
+    instructions="Answer customer questions clearly and concisely.",
+)
+
+async def call_agent(user_message: str):
+    result = await Runner.run(agent, user_message)
+    return result.final_output
+```
+
+The processor creates one Lemma trace for each OpenAI Agents trace. Generation
+spans become Lemma generations, function spans become Lemma tool spans, and
+parent IDs are preserved so tools stay nested under the generation or agent
+span that called them.
+
+Enable debug mode to validate live span shape while developing:
+
+```python
+from uselemma_tracing import enable_debug_mode
+
+enable_debug_mode()
+```
+
+Use `openai_agents(record_inputs=False, record_outputs=False)` when you need a
+processor that avoids sending prompts, tool inputs, tool outputs, and generated
+text.
+
 ## Supported Contract Fields
 
 Use native SDK keyword arguments for OpenInference-style fields:
@@ -119,11 +160,11 @@ Use `attributes` for raw attributes that do not yet have a native SDK keyword.
 
 ## Configuration
 
-| Option | Environment variable | Default |
-| --- | --- | --- |
-| `api_key` | `LEMMA_API_KEY` | Required |
-| `project_id` | `LEMMA_PROJECT_ID` | Required |
-| `base_url` | none | `https://api.uselemma.ai` |
+| Option       | Environment variable | Default                   |
+| ------------ | -------------------- | ------------------------- |
+| `api_key`    | `LEMMA_API_KEY`      | Required                  |
+| `project_id` | `LEMMA_PROJECT_ID`   | Required                  |
+| `base_url`   | none                 | `https://api.uselemma.ai` |
 
 The SDK sends to `{base_url}/traces/ingest`.
 

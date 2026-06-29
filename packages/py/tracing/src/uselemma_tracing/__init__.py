@@ -9,6 +9,11 @@ from .debug_mode import (
     enable_debug_mode,
     is_debug_mode_enabled,
 )
+from .openai_agents import (
+    LemmaOpenAIAgentsProcessor,
+    instrument_openai_agents,
+    openai_agents,
+)
 
 __all__ = [
     "Lemma",
@@ -22,4 +27,7 @@ __all__ = [
     "enable_debug_mode",
     "disable_debug_mode",
     "is_debug_mode_enabled",
+    "LemmaOpenAIAgentsProcessor",
+    "openai_agents",
+    "instrument_openai_agents",
 ]

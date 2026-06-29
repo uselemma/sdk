@@ -23,6 +23,14 @@ export {
   lemmaDebug,
 } from "./debug-mode";
 export {
+  openAIAgents,
+  type OpenAIAgentsIntegrationOptions,
+  type OpenAIAgentsSpan,
+  type OpenAIAgentsSpanData,
+  type OpenAIAgentsTrace,
+  type OpenAIAgentsTracingProcessor,
+} from "./openai-agents";
+export {
   vercelAI,
   type LemmaVercelAIIntegrationOptions,
   type VercelAIIntegrationOptions,

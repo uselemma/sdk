@@ -182,6 +182,35 @@ The integration records model calls as generations and tool executions as tool c
 
 When you pass a trace handle with `vercelAI({ trace })`, the integration ends it from the AI SDK terminal callback: `onEnd` in AI SDK v7 and `onFinish` in AI SDK v6. When you use the callback form of `lemma.trace()`, the callback still owns trace closure.
 
+## OpenAI Agents SDK
+
+Register the Lemma processor with the OpenAI Agents SDK tracing provider:
+
+```typescript
+import { addTraceProcessor } from "@openai/agents";
+import { openAIAgents } from "@uselemma/tracing";
+
+addTraceProcessor(openAIAgents());
+```
+
+The processor creates one Lemma trace for each OpenAI Agents trace. OpenAI
+generation spans become Lemma generations, function spans become Lemma tool
+spans, and other OpenAI Agents spans are preserved as regular spans with the
+original OpenAI trace/span fields in attributes.
+
+Function spans stay nested under their OpenAI parent span. To verify nesting
+locally, enable debug mode and check that the tool span log includes the
+generation span ID as `parentId`:
+
+```typescript
+import { enableDebugMode } from "@uselemma/tracing";
+
+enableDebugMode();
+```
+
+Use `openAIAgents({ recordInputs: false, recordOutputs: false })` to avoid
+sending prompts, tool inputs, tool outputs, or model output text.
+
 When a helper only has IDs, use the client-level methods:
 
 ```typescript
@@ -272,7 +301,8 @@ Use `attributes` for raw attributes that do not yet have a native SDK prop.
 
 ## Examples
 
-See [`examples/`](./examples) for complete callback tracing, trace handle, record-by-ID, and Vercel AI SDK v6/v7 examples.
+See [`examples/`](./examples) for complete callback tracing, trace handle,
+record-by-ID, Vercel AI SDK v6/v7, and OpenAI Agents SDK examples.
 
 ## License
 
