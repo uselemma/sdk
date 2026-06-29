@@ -36,9 +36,6 @@ describe("langChain", () => {
     handler.handleLLMEnd(
       {
         generations: [[{ text: "I should search docs." }]],
-        llmOutput: {
-          tokenUsage: { promptTokens: 12, completionTokens: 8 },
-        },
       },
       "llm-1",
     );
@@ -78,7 +75,6 @@ describe("langChain", () => {
         input: ["where is my order?"],
         output: "I should search docs.",
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
       },
       {
         name: "VectorStoreRetriever",

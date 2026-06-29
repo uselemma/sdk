@@ -41,7 +41,6 @@ def test_langchain_records_generation_retriever_and_tool_children():
     handler.on_llm_end(
         {
             "generations": [[{"text": "I should search docs."}]],
-            "llm_output": {"token_usage": {"prompt_tokens": 12, "completion_tokens": 8}},
         },
         run_id="llm-1",
     )
@@ -76,7 +75,6 @@ def test_langchain_records_generation_retriever_and_tool_children():
     assert generation["input"] == ["where is my order?"]
     assert generation["output"] == "I should search docs."
     assert generation["model"] == "gpt-4o"
-    assert generation["usage"] == {"input_tokens": 12, "output_tokens": 8}
     assert retriever["name"] == "VectorStoreRetriever"
     assert retriever["type"] == "span"
     assert retriever["output"] == [{"page_content": "Shipping docs"}]

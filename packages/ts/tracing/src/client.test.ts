@@ -37,7 +37,6 @@ describe("Lemma", () => {
           input: "prompt",
           output: "answer",
           model: "gpt-4o",
-          usage: { inputTokens: 12, outputTokens: 8 },
           durationMs: 40,
           llmInvocationParameters: { temperature: 0.2 },
           llmInputMessages: [{ role: "user", content: "where is my order?" }],
@@ -83,15 +82,12 @@ describe("Lemma", () => {
         name: "draft-reply",
         type: "generation",
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
         duration_ms: 40,
         attributes: {
           "llm.invocation_parameters": JSON.stringify({ temperature: 0.2 }),
           "llm.input_messages.0.message.role": "user",
           "llm.input_messages.0.message.content": "where is my order?",
           "llm.model_name": "gpt-4o",
-          "llm.token_count.prompt": 12,
-          "llm.token_count.completion": 8,
         },
       },
     ]);
@@ -431,7 +427,6 @@ describe("Lemma", () => {
             input: "secret prompt",
             output: "secret answer",
             model: "gpt-test",
-            usage: { inputTokens: 12, outputTokens: 8 },
             durationMs: 40,
           });
           const liveSpanCalls = spy.mock.calls.filter(
@@ -454,8 +449,6 @@ describe("Lemma", () => {
               type: "generation",
               durationMs: 40,
               model: "gpt-test",
-              inputTokens: 12,
-              outputTokens: 8,
               hasInput: true,
               hasOutput: true,
               hasError: false,

@@ -39,10 +39,6 @@ const answer = await lemma.trace(
       input: response.messages,
       output: response.text,
       model: "gpt-4o",
-      usage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-      },
     });
 
     return response.text;
@@ -108,7 +104,7 @@ const generation = trace.startGeneration({
   model: "gpt-4o",
 });
 const response = await callModel(messages);
-generation.end({ output: response.text, usage: response.usage });
+generation.end({ output: response.text });
 ```
 
 The SDK measures live handle durations from start and end timestamps. Pass `durationMs` only when replaying historical work or overriding the measured duration with a value from another timer. When child spans, generations, or tools omit `durationMs`, Lemma derives timing from timestamps during ingest.

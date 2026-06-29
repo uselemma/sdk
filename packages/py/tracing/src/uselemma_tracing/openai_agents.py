@@ -57,16 +57,6 @@ def _json(value: Any) -> str | None:
         return str(value)
 
 
-def _usage(data: dict[str, Any]) -> dict[str, int] | None:
-    raw = data.get("usage")
-    if not isinstance(raw, dict):
-        return None
-    usage = {
-        "input_tokens": raw.get("input_tokens"),
-        "output_tokens": raw.get("output_tokens"),
-    }
-    return {key: value for key, value in usage.items() if isinstance(value, int)} or None
-
 
 def _generation_output(output: Any) -> Any:
     if not isinstance(output, list):
@@ -233,7 +223,6 @@ class LemmaOpenAIAgentsProcessor:
             return trace.start_generation(
                 **common,
                 model=data.get("model"),
-                usage=_usage(data),
                 llm_provider="openai",
                 llm_invocation_parameters=data.get("model_config"),
                 llm_input_messages=(
@@ -271,7 +260,6 @@ class LemmaOpenAIAgentsProcessor:
             error=error_message,
             status="ERROR" if error_message else None,
             model=data.get("model"),
-            usage=_usage(data),
             ended_at=_get(span, "ended_at"),
             duration_ms=_duration_ms(_get(span, "started_at"), _get(span, "ended_at")),
             llm_output_messages=(

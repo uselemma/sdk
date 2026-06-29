@@ -35,7 +35,6 @@ describe("vercelAI", () => {
       stepNumber: 0,
       model: { provider: "openai", modelId: "gpt-4o" },
       text: "It arrives Friday.",
-      usage: { inputTokens: 12, outputTokens: 8 },
       performance: { responseTimeMs: 100, stepTimeMs: 100 },
     } as never);
 
@@ -78,7 +77,6 @@ describe("vercelAI", () => {
       callId: "call-1",
       provider: "openai",
       modelId: "gpt-4o",
-      usage: { inputTokens: 1, outputTokens: 1 },
       content: [{ type: "text", text: "hi" }],
       performance: { responseTimeMs: 10 },
     } as never);
@@ -110,7 +108,6 @@ describe("vercelAI", () => {
       functionId: "support-agent",
       model: { provider: "openai", modelId: "gpt-4o" },
       text: "hi",
-      totalUsage: { inputTokens: 1, outputTokens: 1 },
     });
 
     const body = jsonBody(fetchMock.mock.calls[0]);
@@ -171,15 +168,12 @@ describe("vercelAI", () => {
       stepNumber: 0,
       model: { provider: "openai", modelId: "gpt-4o" },
       text: "Found docs.",
-      usage: { inputTokens: 5, outputTokens: 4 },
     });
     await integration.onFinish?.({
       functionId: "support-agent",
       stepNumber: 0,
       model: { provider: "openai", modelId: "gpt-4o" },
       text: "Found docs.",
-      usage: { inputTokens: 5, outputTokens: 4 },
-      totalUsage: { inputTokens: 5, outputTokens: 4 },
     });
 
     const body = jsonBody(fetchMock.mock.calls[0]);
@@ -231,7 +225,6 @@ describe("vercelAI", () => {
         callId: "call-1",
         provider: "openai",
         modelId: "gpt-4o",
-        usage: { inputTokens: 12, outputTokens: 8 },
         content: [{ type: "text", text: "I should search docs." }],
         performance: { responseTimeMs: 100 },
       } as never);
@@ -262,7 +255,6 @@ describe("vercelAI", () => {
         stepNumber: 0,
         model: { provider: "openai", modelId: "gpt-4o" },
         text: "I should search docs.",
-        usage: { inputTokens: 12, outputTokens: 8 },
         performance: {
           responseTimeMs: 100,
           stepTimeMs: 150,
@@ -288,7 +280,6 @@ describe("vercelAI", () => {
       input: [{ role: "user", content: "where is my order?" }],
       output: "I should search docs.",
       model: "gpt-4o",
-      usage: { input_tokens: 12, output_tokens: 8 },
       duration_ms: 150,
     });
     expect(
@@ -328,7 +319,6 @@ describe("vercelAI", () => {
         callId: "call-1",
         provider: "openai",
         modelId: "gpt-4o",
-        usage: { inputTokens: 12, outputTokens: 8 },
         content: [{ type: "text", text: "It arrives Friday." }],
         performance: { responseTimeMs: 125 },
       } as never);
@@ -356,7 +346,6 @@ describe("vercelAI", () => {
         input: [{ role: "user", content: "where is my order?" }],
         output: "It arrives Friday.",
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
         duration_ms: 125,
         attributes: {
           "llm.provider": "openai",
@@ -405,7 +394,6 @@ describe("vercelAI", () => {
         callId: "call-1",
         provider: "openai",
         modelId: "gpt-4o",
-        usage: { inputTokens: 1, outputTokens: 2 },
         content: [{ type: "text", text: "secret answer" }],
         performance: { responseTimeMs: 10 },
       } as never);
@@ -465,7 +453,6 @@ describe("vercelAI", () => {
         stepNumber: 0,
         model: { provider: "openai", modelId: "gpt-4o" },
         text: "It arrives Friday.",
-        usage: { inputTokens: 12, outputTokens: 8 },
       });
 
       integration.onToolCallFinish?.({
@@ -490,7 +477,6 @@ describe("vercelAI", () => {
         input: [{ role: "user", content: "where is my order?" }],
         output: "It arrives Friday.",
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
         attributes: {
           "llm.provider": "openai",
           "llm.input_messages.0.message.content": "where is my order?",
@@ -529,7 +515,6 @@ describe("vercelAI", () => {
       integration.onFinish?.({
         model: { provider: "openai", modelId: "gpt-4o" },
         text: "hi",
-        totalUsage: { inputTokens: 1, outputTokens: 1 },
       });
 
       return "hi";
@@ -543,7 +528,6 @@ describe("vercelAI", () => {
         input: "hello",
         output: "hi",
         model: "gpt-4o",
-        usage: { input_tokens: 1, output_tokens: 1 },
       },
     ]);
   });
@@ -585,7 +569,6 @@ describe("vercelAI", () => {
     await integration.onFinish?.({
       model: { provider: "openai", modelId: "gpt-4o" },
       text: "hi",
-      totalUsage: { inputTokens: 1, outputTokens: 1 },
     });
 
     const body = jsonBody(fetchMock.mock.calls.at(-1)!);

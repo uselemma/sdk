@@ -77,33 +77,6 @@ def _llm_output(response: Any) -> Any:
     return text or generations
 
 
-def _usage(response: Any) -> dict[str, int] | None:
-    output = _get(response, "llm_output", None) or _get(response, "llmOutput", None) or {}
-    token_usage = (
-        _get(output, "token_usage", None)
-        or _get(output, "tokenUsage", None)
-        or _get(output, "usage", None)
-    )
-    if not isinstance(token_usage, dict):
-        return None
-    input_tokens = (
-        token_usage.get("prompt_tokens")
-        or token_usage.get("promptTokens")
-        or token_usage.get("input_tokens")
-        or token_usage.get("inputTokens")
-    )
-    output_tokens = (
-        token_usage.get("completion_tokens")
-        or token_usage.get("completionTokens")
-        or token_usage.get("output_tokens")
-        or token_usage.get("outputTokens")
-    )
-    usage = {
-        "input_tokens": input_tokens if isinstance(input_tokens, int) else None,
-        "output_tokens": output_tokens if isinstance(output_tokens, int) else None,
-    }
-    return {key: value for key, value in usage.items() if value is not None} or None
-
 
 def _error_message(error: Any) -> str:
     return str(error)
@@ -332,7 +305,6 @@ class LemmaLangChainCallbackHandler:
         output = _llm_output(response)
         run.handle.end(
             output=output if self.record_outputs else None,
-            usage=_usage(response),
             llm_output_messages=(
                 [{"role": "assistant", "content": output}]
                 if self.record_outputs and output is not None

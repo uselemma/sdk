@@ -107,22 +107,6 @@ function openAIAttributes(span: OpenAIAgentsSpan): Record<string, unknown> {
   );
 }
 
-function usage(data: OpenAIAgentsSpanData) {
-  const raw = data["usage"];
-  if (!raw || typeof raw !== "object") return undefined;
-  const usageData = raw as Record<string, unknown>;
-  return {
-    inputTokens:
-      typeof usageData["input_tokens"] === "number"
-        ? usageData["input_tokens"]
-        : undefined,
-    outputTokens:
-      typeof usageData["output_tokens"] === "number"
-        ? usageData["output_tokens"]
-        : undefined,
-  };
-}
-
 function startedAt(span: OpenAIAgentsSpan) {
   return span.startedAt ?? new Date();
 }
@@ -222,7 +206,6 @@ export function openAIAgents(
       error: span.error?.message,
       status: span.error ? "ERROR" : undefined,
       model: typeof data["model"] === "string" ? data["model"] : undefined,
-      usage: usage(data),
       endedAt: endedAt(span),
       llmOutputMessages:
         options.recordOutputs === false || !Array.isArray(data["output"])

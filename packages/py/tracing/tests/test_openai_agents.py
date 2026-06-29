@@ -99,7 +99,6 @@ def test_openai_agents_records_generations_and_function_children():
                 "input": [{"role": "user", "content": "where is my order?"}],
                 "output": [{"role": "assistant", "content": "It arrives Friday."}],
                 "model": "gpt-4o",
-                "usage": {"input_tokens": 12, "output_tokens": 8},
             },
         )
     )
@@ -114,7 +113,6 @@ def test_openai_agents_records_generations_and_function_children():
     assert trace["spans"][0]["type"] == "generation"
     assert trace["spans"][0]["output"] == "It arrives Friday."
     assert trace["spans"][0]["model"] == "gpt-4o"
-    assert trace["spans"][0]["usage"] == {"input_tokens": 12, "output_tokens": 8}
     assert trace["spans"][0]["duration_ms"] == 125
     assert trace["spans"][0]["ended_at"] == "2026-06-29T10:00:00.125Z"
     assert trace["spans"][0]["attributes"]["llm.provider"] == "openai"

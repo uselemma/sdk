@@ -1,16 +1,16 @@
 # Lemma SDK
 
 Official SDKs for sending AI agent traces to Lemma. The tracing packages capture
-agent runs, spans, LLM generations, tool calls, inputs, outputs, timing, token
-usage, errors, and OpenInference-compatible attributes, then send trace payloads
+agent runs, spans, LLM generations, tool calls, inputs, outputs, timing, errors,
+and OpenInference-compatible attributes, then send trace payloads
 directly to Lemma over HTTP.
 
 ## Packages
 
 | Package                                    | Language             | Current version | Path                  |
 | ------------------------------------------ | -------------------- | --------------- | --------------------- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `6.0.0`         | `packages/ts/tracing` |
-| [`uselemma-tracing`](packages/py/tracing)  | Python               | `6.0.0`         | `packages/py/tracing` |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `7.0.0`         | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing)  | Python               | `7.0.0`         | `packages/py/tracing` |
 
 ## Install
 
@@ -81,10 +81,6 @@ const answer = await lemma.trace(
       input: response.messages,
       output: response.text,
       model: "gpt-4o",
-      usage: {
-        inputTokens: response.usage.inputTokens,
-        outputTokens: response.usage.outputTokens,
-      },
       llmInputMessages: response.messages,
       llmInvocationParameters: { temperature: 0.2 },
     });
@@ -131,7 +127,6 @@ const generation = trace.startGeneration({
 const response = await callModel(messages);
 generation.end({
   output: response.text,
-  usage: response.usage,
 });
 
 await trace.end({ output: response.text });
@@ -334,10 +329,6 @@ def run(trace):
         input=response.messages,
         output=response.text,
         model="gpt-4o",
-        usage={
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
-        },
         llm_input_messages=response.messages,
         llm_invocation_parameters={"temperature": 0.2},
     )
@@ -366,12 +357,11 @@ Use first-class SDK options for common trace-contract fields:
 - span fields: `name`, `type`, `input`, `output`, `metadata`, `attributes`,
   `startedAt` / `started_at`, `endedAt` / `ended_at`, `durationMs` /
   `duration_ms`, `status`, `error`
-- generation fields: `model`, `usage`, `llmModelName` / `llm_model_name`,
+- generation fields: `model`, `llmModelName` / `llm_model_name`,
   `llmProvider` / `llm_provider`, `llmSystem` / `llm_system`,
   `llmInvocationParameters` / `llm_invocation_parameters`,
   `llmInputMessages` / `llm_input_messages`, `llmOutputMessages` /
-  `llm_output_messages`, `llmTools` / `llm_tools`, token-count and prompt
-  template fields
+  `llm_output_messages`, `llmTools` / `llm_tools`, and prompt template fields
 - tool fields: `toolName` / `tool_name`, `toolDescription` /
   `tool_description`, `toolParameters` / `tool_parameters`
 - embedding and reranker fields:

@@ -39,7 +39,6 @@ def test_lemma_trace_posts_completed_trace():
                 input="prompt",
                 output="answer",
                 model="gpt-4o",
-                usage={"input_tokens": 12, "output_tokens": 8},
                 duration_ms=40,
                 llm_invocation_parameters={"temperature": 0.2},
                 llm_input_messages=[{"role": "user", "content": "where is my order?"}],
@@ -76,12 +75,6 @@ def test_lemma_trace_posts_completed_trace():
         "llm.input_messages.0.message.role": "user",
         "llm.input_messages.0.message.content": "where is my order?",
         "llm.model_name": "gpt-4o",
-        "llm.token_count.prompt": 12,
-        "llm.token_count.completion": 8,
-    }
-    assert body["trace"]["spans"][1]["usage"] == {
-        "input_tokens": 12,
-        "output_tokens": 8,
     }
 
 
@@ -190,7 +183,6 @@ def test_debug_mode_logs_sanitized_span_summaries(capsys):
             input="secret prompt",
             output="secret answer",
             model="gpt-test",
-            usage={"input_tokens": 12, "output_tokens": 8},
             duration_ms=40,
         )
         live_output = capsys.readouterr().out
@@ -202,8 +194,6 @@ def test_debug_mode_logs_sanitized_span_summaries(capsys):
         assert "'name': 'draft-reply'" in live_output
         assert "'type': 'generation'" in live_output
         assert "'model': 'gpt-test'" in live_output
-        assert "'input_tokens': 12" in live_output
-        assert "'output_tokens': 8" in live_output
         assert "secret query" not in live_output
         assert "secret prompt" not in live_output
         assert "secret answer" not in live_output

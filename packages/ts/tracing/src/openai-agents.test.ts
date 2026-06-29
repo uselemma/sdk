@@ -73,7 +73,6 @@ describe("openAIAgents", () => {
         input: [{ role: "user", content: "where is my order?" }],
         output: [{ role: "assistant", content: "It arrives Friday." }],
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
       },
       startedAt: "2026-06-29T10:00:00.000Z",
       endedAt: "2026-06-29T10:00:00.125Z",
@@ -105,7 +104,6 @@ describe("openAIAgents", () => {
         input: [{ role: "user", content: "where is my order?" }],
         output: "It arrives Friday.",
         model: "gpt-4o",
-        usage: { input_tokens: 12, output_tokens: 8 },
         attributes: {
           "llm.provider": "openai",
           "llm.input_messages.0.message.role": "user",

@@ -20,10 +20,6 @@ type VercelAIModelCallEndEvent = {
   callId: string;
   provider: string;
   modelId: string;
-  usage: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
   content: ReadonlyArray<unknown>;
   performance: {
     responseTimeMs?: number;
@@ -82,10 +78,6 @@ type VercelAIStepEndEvent = {
   model: VercelAIV6ModelInfo;
   text?: string;
   content?: ReadonlyArray<unknown>;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
   performance?: {
     stepTimeMs?: number;
     responseTimeMs?: number;
@@ -119,10 +111,6 @@ type VercelAIV6StepFinishEvent = {
   content?: ReadonlyArray<unknown>;
   functionId?: string;
   metadata?: Record<string, unknown>;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
 };
 
 type VercelAIV6StartEvent = {
@@ -141,14 +129,6 @@ type VercelAIV6FinishEvent = {
   content?: ReadonlyArray<unknown>;
   functionId?: string;
   metadata?: Record<string, unknown>;
-  totalUsage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
 };
 
 type VercelAIV6ToolCallFinishEvent = {
@@ -489,7 +469,6 @@ export function vercelAI(
       typeof options.generationName === "function"
         ? options.generationName(event)
         : (options.generationName ?? "vercel-ai-generation");
-    const usage = "totalUsage" in event ? event.totalUsage : event.usage;
     const output = v6Output(event);
 
     const generation = {
@@ -501,10 +480,6 @@ export function vercelAI(
       output: options.recordOutputs === false ? undefined : output,
       metadata: options.metadata,
       model: event.model.modelId,
-      usage: {
-        inputTokens: usage?.inputTokens,
-        outputTokens: usage?.outputTokens,
-      },
       startedAt,
       endedAt,
       llmProvider: event.model.provider,
@@ -541,7 +516,6 @@ export function vercelAI(
             callId: event.callId,
             provider: event.provider,
             modelId: event.modelId,
-            usage: {},
             content: [],
             performance: {},
           })
@@ -574,7 +548,6 @@ export function vercelAI(
         ? options.generationName({
             stepNumber: "stepNumber" in event ? event.stepNumber : 0,
             model: event.model,
-            usage: {},
           })
         : (options.generationName ?? "vercel-ai-generation");
     const input = v6Input(event);
@@ -619,10 +592,6 @@ export function vercelAI(
 
     stored.handle.end({
       output: options.recordOutputs === false ? undefined : output,
-      usage: {
-        inputTokens: event.usage?.inputTokens,
-        outputTokens: event.usage?.outputTokens,
-      },
       model: event.model.modelId,
       durationMs,
       endedAt: addMs(stored.startedAt, durationMs),
@@ -649,7 +618,6 @@ export function vercelAI(
               callId: event.callId,
               provider: event.provider,
               modelId: event.modelId,
-              usage: {},
               content: [],
               performance: {},
             })
@@ -680,10 +648,6 @@ export function vercelAI(
           options.recordOutputs === false
             ? undefined
             : stringifyContent(event.content),
-        usage: {
-          inputTokens: event.usage.inputTokens,
-          outputTokens: event.usage.outputTokens,
-        },
         model: event.modelId,
         durationMs: event.performance.responseTimeMs,
         endedAt: addMs(stored.startedAt, event.performance.responseTimeMs),

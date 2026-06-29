@@ -50,10 +50,6 @@ export type SpanOptions = {
   status?: "OK" | "ERROR";
   error?: unknown;
   model?: string;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-  };
   toolName?: string;
   inputMimeType?: string;
   outputMimeType?: string;
@@ -64,9 +60,6 @@ export type SpanOptions = {
   llmInputMessages?: unknown[];
   llmOutputMessages?: unknown[];
   llmTools?: unknown;
-  llmTokenCountPrompt?: number;
-  llmTokenCountCompletion?: number;
-  llmTokenCountTotal?: number;
   llmPromptTemplate?: string;
   llmPromptTemplateVariables?: unknown;
   llmPromptTemplateVersion?: string;
@@ -81,7 +74,7 @@ export type SpanOptions = {
 };
 
 export type GenerationOptions = Omit<SpanOptions, "type" | "toolName">;
-export type ToolOptions = Omit<SpanOptions, "type" | "model" | "usage">;
+export type ToolOptions = Omit<SpanOptions, "type" | "model">;
 
 export type DetachedSpanOptions = Partial<SpanOptions> & { traceId?: string };
 export type DetachedGenerationOptions = Partial<GenerationOptions> & {
@@ -108,10 +101,6 @@ type SdkTraceSpanPayload = {
   status?: "OK" | "ERROR";
   error?: string | null;
   model?: string;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-  };
   tool_name?: string;
 };
 
@@ -145,8 +134,6 @@ type DebugSpanSummary = {
   status?: "OK" | "ERROR";
   durationMs?: number;
   model?: string;
-  inputTokens?: number;
-  outputTokens?: number;
   hasInput: boolean;
   hasOutput: boolean;
   hasError: boolean;
@@ -200,8 +187,6 @@ function summarizeSpanForDebug(
       status: span.status,
       durationMs: span.duration_ms,
       model: span.model,
-      inputTokens: span.usage?.input_tokens,
-      outputTokens: span.usage?.output_tokens,
       hasInput: span.input !== undefined,
       hasOutput: span.output !== undefined,
       hasError: Boolean(span.error),
@@ -299,17 +284,6 @@ function contractAttributes(options: SpanOptions): Record<string, unknown> {
   addDefined(attributes, "llm.tools", serializeAttribute(options.llmTools));
   addDefined(
     attributes,
-    "llm.token_count.prompt",
-    options.llmTokenCountPrompt ?? options.usage?.inputTokens,
-  );
-  addDefined(
-    attributes,
-    "llm.token_count.completion",
-    options.llmTokenCountCompletion ?? options.usage?.outputTokens,
-  );
-  addDefined(attributes, "llm.token_count.total", options.llmTokenCountTotal);
-  addDefined(
-    attributes,
     "llm.prompt_template.template",
     options.llmPromptTemplate,
   );
@@ -389,12 +363,6 @@ function normalizeSpan(
     status: options.status ?? (options.error ? "ERROR" : undefined),
     error: errorMessage(options.error),
     model: options.model,
-    usage: options.usage
-      ? {
-          input_tokens: options.usage.inputTokens,
-          output_tokens: options.usage.outputTokens,
-        }
-      : undefined,
     tool_name: options.toolName,
   };
 }

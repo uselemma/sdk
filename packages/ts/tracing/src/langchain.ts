@@ -84,31 +84,6 @@ function llmOutput(result: LLMResult): unknown {
   return text || generations;
 }
 
-function usage(result: LLMResult) {
-  const output = result.llmOutput ?? {};
-  const tokenUsage =
-    output.tokenUsage ??
-    output.token_usage ??
-    output.usage ??
-    output.estimatedTokenUsage;
-  if (!tokenUsage || typeof tokenUsage !== "object") return undefined;
-  const usageData = tokenUsage as Record<string, unknown>;
-  const inputTokens =
-    usageData.promptTokens ??
-    usageData.prompt_tokens ??
-    usageData.inputTokens ??
-    usageData.input_tokens;
-  const outputTokens =
-    usageData.completionTokens ??
-    usageData.completion_tokens ??
-    usageData.outputTokens ??
-    usageData.output_tokens;
-  return {
-    inputTokens: typeof inputTokens === "number" ? inputTokens : undefined,
-    outputTokens: typeof outputTokens === "number" ? outputTokens : undefined,
-  };
-}
-
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
@@ -293,7 +268,6 @@ export class LemmaLangChainCallbackHandler {
     const outputText = llmOutput(output);
     run.handle.end({
       output: this.options.recordOutputs === false ? undefined : outputText,
-      usage: usage(output),
       llmOutputMessages:
         this.options.recordOutputs === false || outputText === undefined
           ? undefined

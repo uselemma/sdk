@@ -80,7 +80,6 @@ describe("HTTP tracing integration", () => {
           name: "draft-reply",
           output: "hello",
           model: "gpt-4o",
-          usage: { inputTokens: 1, outputTokens: 2 },
         });
         return "hello";
       },
@@ -117,7 +116,6 @@ describe("HTTP tracing integration", () => {
       callId: "call-1",
       provider: "openai",
       modelId: "gpt-4o",
-      usage: { inputTokens: 1, outputTokens: 1 },
       content: [{ type: "text", text: "hello" }],
       performance: { responseTimeMs: 12 },
     } as never);
@@ -187,7 +185,6 @@ describe("HTTP tracing integration", () => {
     langChainHandler.handleLLMEnd(
       {
         generations: [[{ text: "hello" }]],
-        llmOutput: { tokenUsage: { promptTokens: 1, completionTokens: 1 } },
       },
       "llm-1",
     );
@@ -261,7 +258,6 @@ describe("HTTP tracing integration", () => {
       type: "generation",
       model: "gpt-4o",
       output: "hello",
-      usage: { input_tokens: 1, output_tokens: 1 },
     });
   });
 });

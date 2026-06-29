@@ -30,10 +30,6 @@ def run(trace):
         input=response.messages,
         output=response.text,
         model="gpt-4o",
-        usage={
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
-        },
         llm_input_messages=[{"role": "user", "content": user_message}],
         llm_invocation_parameters={"temperature": 0.2},
     )

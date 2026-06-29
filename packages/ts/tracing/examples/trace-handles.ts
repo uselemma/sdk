@@ -14,7 +14,6 @@ async function searchDocs(query: string) {
 async function callModel(message: string, docs: unknown[]) {
   return {
     text: `Answer for ${message}`,
-    usage: { inputTokens: 42, outputTokens: 12 },
     docs,
   };
 }
@@ -47,7 +46,6 @@ export async function runWithHandles(userMessage: string) {
     name: "draft-reply",
     output: response.text,
     model: "gpt-4o",
-    usage: response.usage,
   });
 
   await trace.end({ output: response.text });

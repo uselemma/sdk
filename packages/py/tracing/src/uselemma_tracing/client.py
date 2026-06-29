@@ -8,17 +8,13 @@ import urllib.request
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal, TypedDict, TypeVar
+from typing import Any, Callable, Literal, TypeVar
 
 from .debug_mode import _lemma_debug
 
 T = TypeVar("T")
 SpanType = Literal["span", "generation", "tool"]
 Status = Literal["OK", "ERROR"]
-
-class Usage(TypedDict, total=False):
-    input_tokens: int
-    output_tokens: int
 
 
 def _now() -> datetime:
@@ -87,8 +83,6 @@ def _debug_span_summary(
             "status": span.get("status"),
             "duration_ms": span.get("duration_ms"),
             "model": span.get("model"),
-            "input_tokens": (span.get("usage") or {}).get("input_tokens"),
-            "output_tokens": (span.get("usage") or {}).get("output_tokens"),
             "has_input": "input" in span,
             "has_output": "output" in span,
             "has_error": bool(span.get("error")),
@@ -136,7 +130,6 @@ def _span_attributes(
     attributes: dict[str, Any] | None = None,
     *,
     model: str | None = None,
-    usage: Usage | None = None,
     input_mime_type: str | None = None,
     output_mime_type: str | None = None,
     llm_model_name: str | None = None,
@@ -146,9 +139,6 @@ def _span_attributes(
     llm_input_messages: list[Any] | None = None,
     llm_output_messages: list[Any] | None = None,
     llm_tools: Any = None,
-    llm_token_count_prompt: int | None = None,
-    llm_token_count_completion: int | None = None,
-    llm_token_count_total: int | None = None,
     llm_prompt_template: str | None = None,
     llm_prompt_template_variables: Any = None,
     llm_prompt_template_version: str | None = None,
@@ -173,21 +163,6 @@ def _span_attributes(
         _serialize_attribute(llm_invocation_parameters),
     )
     _add_defined(attrs, "llm.tools", _serialize_attribute(llm_tools))
-    _add_defined(
-        attrs,
-        "llm.token_count.prompt",
-        llm_token_count_prompt
-        if llm_token_count_prompt is not None
-        else (usage or {}).get("input_tokens"),
-    )
-    _add_defined(
-        attrs,
-        "llm.token_count.completion",
-        llm_token_count_completion
-        if llm_token_count_completion is not None
-        else (usage or {}).get("output_tokens"),
-    )
-    _add_defined(attrs, "llm.token_count.total", llm_token_count_total)
     _add_defined(attrs, "llm.prompt_template.template", llm_prompt_template)
     _add_defined(
         attrs,
@@ -230,7 +205,6 @@ class SpanHandle:
     parent_id: str | None = None
     started_at: datetime = field(default_factory=_now)
     model: str | None = None
-    usage: Usage | None = None
     tool_name: str | None = None
     llm_provider: str | None = None
     llm_invocation_parameters: Any = None
@@ -250,7 +224,6 @@ class SpanHandle:
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
         model: str | None = None,
-        usage: Usage | None = None,
         tool_name: str | None = None,
         llm_provider: str | None = None,
         llm_invocation_parameters: Any = None,
@@ -274,7 +247,6 @@ class SpanHandle:
             metadata=metadata or self.metadata,
             attributes=attributes or self.attributes,
             model=model or self.model,
-            usage=usage or self.usage,
             tool_name=tool_name or self.tool_name,
             input_mime_type=input_mime_type,
             output_mime_type=output_mime_type,
@@ -347,7 +319,6 @@ class TraceContext:
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
         model: str | None = None,
-        usage: Usage | None = None,
         tool_name: str | None = None,
         input_mime_type: str | None = None,
         output_mime_type: str | None = None,
@@ -379,7 +350,6 @@ class TraceContext:
             metadata=metadata,
             attributes=attributes,
             model=model,
-            usage=usage,
             tool_name=tool_name,
             input_mime_type=input_mime_type,
             output_mime_type=output_mime_type,
@@ -415,7 +385,6 @@ class TraceContext:
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
         model: str | None = None,
-        usage: Usage | None = None,
         tool_name: str | None = None,
         input_mime_type: str | None = None,
         output_mime_type: str | None = None,
@@ -453,7 +422,6 @@ class TraceContext:
                 "attributes": _span_attributes(
                     attributes,
                     model=model,
-                    usage=usage,
                     input_mime_type=input_mime_type,
                     output_mime_type=output_mime_type,
                     llm_provider=llm_provider,
@@ -474,7 +442,6 @@ class TraceContext:
                 "status": status or ("ERROR" if error else None),
                 "error": _error_message(error),
                 "model": model,
-                "usage": usage,
                 "tool_name": tool_name,
             }
         )
@@ -488,7 +455,6 @@ class TraceContext:
         input: Any = None,
         output: Any = None,
         model: str | None = None,
-        usage: Usage | None = None,
         metadata: dict[str, Any] | None = None,
         attributes: dict[str, Any] | None = None,
         input_mime_type: str | None = None,
@@ -500,9 +466,6 @@ class TraceContext:
         llm_input_messages: list[Any] | None = None,
         llm_output_messages: list[Any] | None = None,
         llm_tools: Any = None,
-        llm_token_count_prompt: int | None = None,
-        llm_token_count_completion: int | None = None,
-        llm_token_count_total: int | None = None,
         llm_prompt_template: str | None = None,
         llm_prompt_template_variables: Any = None,
         llm_prompt_template_version: str | None = None,
@@ -518,12 +481,10 @@ class TraceContext:
                 "input": input,
                 "output": output,
                 "model": model,
-                "usage": usage,
                 "metadata": metadata,
                 "attributes": _span_attributes(
                     attributes,
                     model=model,
-                    usage=usage,
                     input_mime_type=input_mime_type,
                     output_mime_type=output_mime_type,
                     llm_model_name=llm_model_name,
@@ -533,9 +494,6 @@ class TraceContext:
                     llm_input_messages=llm_input_messages,
                     llm_output_messages=llm_output_messages,
                     llm_tools=llm_tools,
-                    llm_token_count_prompt=llm_token_count_prompt,
-                    llm_token_count_completion=llm_token_count_completion,
-                    llm_token_count_total=llm_token_count_total,
                     llm_prompt_template=llm_prompt_template,
                     llm_prompt_template_variables=llm_prompt_template_variables,
                     llm_prompt_template_version=llm_prompt_template_version,
@@ -647,7 +605,6 @@ class TraceContext:
         parent_id: str | None = None,
         started_at: datetime | str | None = None,
         model: str | None = None,
-        usage: Usage | None = None,
         llm_provider: str | None = None,
         llm_invocation_parameters: Any = None,
         llm_input_messages: list[Any] | None = None,
@@ -664,7 +621,6 @@ class TraceContext:
             parent_id=parent_id,
             started_at=_datetime_or_now(started_at),
             model=model,
-            usage=usage,
             llm_provider=llm_provider,
             llm_invocation_parameters=llm_invocation_parameters,
             llm_input_messages=llm_input_messages,
@@ -681,14 +637,12 @@ class TraceContext:
                 "attributes": _span_attributes(
                     attributes,
                     model=model,
-                    usage=usage,
                     llm_provider=llm_provider,
                     llm_invocation_parameters=llm_invocation_parameters,
                     llm_input_messages=llm_input_messages,
                     llm_tools=llm_tools,
                 ),
                 "model": model,
-                "usage": usage,
                 "started_at": _iso(handle.started_at),
                 "ended_at": None,
             }

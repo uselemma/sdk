@@ -15,7 +15,6 @@ async function callModel(message: string, docs: unknown[]) {
   return {
     text: `Answer for ${message}`,
     messages: [{ role: "user", content: message }],
-    usage: { inputTokens: 42, outputTokens: 12 },
     docs,
   };
 }
@@ -44,7 +43,6 @@ export async function runSupportAgent(userMessage: string) {
         input: response.messages,
         output: response.text,
         model: "gpt-4o",
-        usage: response.usage,
         llmInputMessages: response.messages,
         llmInvocationParameters: { temperature: 0.2 },
       });
