@@ -1,6 +1,6 @@
 # Lemma Tracing
 
-OpenTelemetry-based tracing for AI agents. Capture inputs, outputs, timing, token usage, and errors — then view everything in [Lemma](https://uselemma.ai).
+Direct HTTP tracing SDKs for AI agents. Capture inputs, outputs, timing, token usage, and errors, then send completed trace payloads to [Lemma](https://uselemma.ai).
 
 ## Packages
 

@@ -1,0 +1,299 @@
+import { describe, expect, it, vi } from "vitest";
+import { Lemma } from "./client";
+import { vercelAI } from "./vercel-ai";
+
+function jsonBody(call: unknown[]) {
+  return JSON.parse(String((call[1] as RequestInit).body));
+}
+
+describe("vercelAI", () => {
+  it("records AI SDK model calls and tool executions", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await lemma.trace("support-agent", async () => {
+      const integration = vercelAI();
+
+      integration.onLanguageModelCallStart?.({
+        callId: "call-1",
+        provider: "openai",
+        modelId: "gpt-4o",
+        messages: [{ role: "user", content: "where is my order?" }],
+        tools: [{ type: "function", name: "search_docs" }],
+      } as never);
+
+      integration.onLanguageModelCallEnd?.({
+        callId: "call-1",
+        provider: "openai",
+        modelId: "gpt-4o",
+        usage: { inputTokens: 12, outputTokens: 8 },
+        content: [{ type: "text", text: "It arrives Friday." }],
+        performance: { responseTimeMs: 125 },
+      } as never);
+
+      integration.onToolExecutionEnd?.({
+        callId: "call-1",
+        toolCall: {
+          toolName: "search_docs",
+          toolCallId: "tool-1",
+          input: { query: "order" },
+        },
+        toolExecutionMs: 25,
+        toolOutput: { type: "tool-result", output: [{ title: "Shipping" }] },
+        messages: [{ role: "user", content: "where is my order?" }],
+      } as never);
+
+      return "It arrives Friday.";
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace.spans).toMatchObject([
+      {
+        name: "vercel-ai-generation",
+        type: "generation",
+        input: [{ role: "user", content: "where is my order?" }],
+        output: "It arrives Friday.",
+        model: "gpt-4o",
+        usage: { input_tokens: 12, output_tokens: 8 },
+        duration_ms: 125,
+        attributes: {
+          "llm.provider": "openai",
+          "llm.input_messages.0.message.role": "user",
+          "llm.input_messages.0.message.content": "where is my order?",
+          "llm.output_messages.0.message.role": "assistant",
+          "llm.output_messages.0.message.content": "It arrives Friday.",
+          "llm.tools": JSON.stringify([
+            { type: "function", name: "search_docs" },
+          ]),
+        },
+      },
+      {
+        name: "search_docs",
+        type: "tool",
+        input: { query: "order" },
+        output: [{ title: "Shipping" }],
+        duration_ms: 25,
+      },
+    ]);
+  });
+
+  it("does not record inputs or outputs when disabled", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await lemma.trace("support-agent", async () => {
+      const integration = vercelAI({
+        recordInputs: false,
+        recordOutputs: false,
+      });
+
+      integration.onLanguageModelCallStart?.({
+        callId: "call-1",
+        provider: "openai",
+        modelId: "gpt-4o",
+        messages: [{ role: "user", content: "secret" }],
+      } as never);
+
+      integration.onLanguageModelCallEnd?.({
+        callId: "call-1",
+        provider: "openai",
+        modelId: "gpt-4o",
+        usage: { inputTokens: 1, outputTokens: 2 },
+        content: [{ type: "text", text: "secret answer" }],
+        performance: { responseTimeMs: 10 },
+      } as never);
+
+      integration.onToolExecutionEnd?.({
+        callId: "call-1",
+        toolCall: {
+          toolName: "lookup",
+          toolCallId: "tool-1",
+          input: { secret: "tool input" },
+        },
+        toolExecutionMs: 5,
+        toolOutput: { type: "tool-result", output: { secret: "tool output" } },
+        messages: [{ role: "user", content: "secret" }],
+      } as never);
+
+      return "ok";
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace.spans[0]).not.toHaveProperty("input");
+    expect(body.trace.spans[0]).not.toHaveProperty("output");
+    expect(body.trace.spans[0].attributes).not.toHaveProperty(
+      "llm.input_messages.0.message.content",
+    );
+    expect(body.trace.spans[0].attributes).not.toHaveProperty(
+      "llm.output_messages.0.message.content",
+    );
+    expect(body.trace.spans[1]).not.toHaveProperty("input");
+    expect(body.trace.spans[1]).not.toHaveProperty("output");
+  });
+
+  it("records AI SDK v6 step and tool callbacks", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await lemma.trace("support-agent", async () => {
+      const integration = vercelAI();
+
+      integration.onStart?.({
+        model: { provider: "openai", modelId: "gpt-4o" },
+        prompt: "where is my order?",
+      });
+
+      integration.onStepStart?.({
+        stepNumber: 0,
+        model: { provider: "openai", modelId: "gpt-4o" },
+        messages: [{ role: "user", content: "where is my order?" }],
+        tools: { search_docs: { description: "Search docs" } },
+      });
+
+      integration.onStepFinish?.({
+        stepNumber: 0,
+        model: { provider: "openai", modelId: "gpt-4o" },
+        text: "It arrives Friday.",
+        usage: { inputTokens: 12, outputTokens: 8 },
+      });
+
+      integration.onToolCallFinish?.({
+        toolCall: {
+          toolName: "search_docs",
+          toolCallId: "tool-1",
+          input: { query: "order" },
+        },
+        durationMs: 25,
+        success: true,
+        output: [{ title: "Shipping" }],
+      } as never);
+
+      return "It arrives Friday.";
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace.spans).toMatchObject([
+      {
+        name: "vercel-ai-generation",
+        type: "generation",
+        input: [{ role: "user", content: "where is my order?" }],
+        output: "It arrives Friday.",
+        model: "gpt-4o",
+        usage: { input_tokens: 12, output_tokens: 8 },
+        attributes: {
+          "llm.provider": "openai",
+          "llm.input_messages.0.message.content": "where is my order?",
+          "llm.output_messages.0.message.content": "It arrives Friday.",
+          "llm.tools": JSON.stringify({
+            search_docs: { description: "Search docs" },
+          }),
+        },
+      },
+      {
+        name: "search_docs",
+        type: "tool",
+        input: { query: "order" },
+        output: [{ title: "Shipping" }],
+        duration_ms: 25,
+      },
+    ]);
+  });
+
+  it("falls back to AI SDK v6 finish callbacks when step callbacks are absent", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await lemma.trace("support-agent", async () => {
+      const integration = vercelAI();
+
+      integration.onStart?.({
+        model: { provider: "openai", modelId: "gpt-4o" },
+        prompt: "hello",
+      });
+
+      integration.onFinish?.({
+        model: { provider: "openai", modelId: "gpt-4o" },
+        text: "hi",
+        totalUsage: { inputTokens: 1, outputTokens: 1 },
+      });
+
+      return "hi";
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace.spans).toMatchObject([
+      {
+        name: "vercel-ai-generation",
+        type: "generation",
+        input: "hello",
+        output: "hi",
+        model: "gpt-4o",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      },
+    ]);
+  });
+
+  it("ends an explicit trace handle from AI SDK v7 onEnd", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+    const trace = lemma.trace({ name: "support-agent", input: "hello" });
+    const integration = vercelAI({ trace });
+
+    await integration.onEnd?.({ text: "hi" });
+
+    const body = jsonBody(fetchMock.mock.calls.at(-1)!);
+    expect(body.trace).toMatchObject({
+      name: "support-agent",
+      input: "hello",
+      output: "hi",
+    });
+  });
+
+  it("ends an explicit trace handle from AI SDK v6 onFinish", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+    const trace = lemma.trace({ name: "support-agent", input: "hello" });
+    const integration = vercelAI({ trace });
+
+    integration.onStart?.({
+      model: { provider: "openai", modelId: "gpt-4o" },
+      prompt: "hello",
+    });
+    await integration.onFinish?.({
+      model: { provider: "openai", modelId: "gpt-4o" },
+      text: "hi",
+      totalUsage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    const body = jsonBody(fetchMock.mock.calls.at(-1)!);
+    expect(body.trace).toMatchObject({
+      name: "support-agent",
+      input: "hello",
+      output: "hi",
+    });
+  });
+});

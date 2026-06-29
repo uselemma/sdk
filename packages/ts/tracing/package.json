@@ -1,7 +1,7 @@
 {
   "name": "@uselemma/tracing",
-  "version": "3.0.3",
-  "description": "OpenTelemetry-based tracing module for Lemma",
+  "version": "4.0.0",
+  "description": "HTTP tracing SDK for Lemma",
   "license": "MIT",
   "author": "Lemma",
   "repository": {
@@ -13,12 +13,11 @@
     "url": "https://github.com/uselemma/sdk/issues"
   },
   "keywords": [
-    "opentelemetry",
     "tracing",
     "observability",
     "monitoring",
     "llm",
-    "instrumentation"
+    "sdk"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,6 +29,7 @@
   },
   "files": [
     "dist",
+    "examples",
     "README.md",
     "LICENSE"
   ],
@@ -40,16 +40,8 @@
     "test": "vitest run",
     "prepublishOnly": "pnpm run type-check && pnpm run build"
   },
-  "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/exporter-trace-otlp-proto": "^0.211.0",
-    "@opentelemetry/sdk-trace-base": "^2.2.0",
-    "@opentelemetry/sdk-trace-node": "^2.5.0",
-    "uuid": "^13.0.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@arizeai/openinference-instrumentation-openai": "^4.0.5",
-    "@opentelemetry/instrumentation": "^0.213.0",
     "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@types/node": "^22.18.8",
     "@vitest/coverage-v8": "^3.2.4",

@@ -1,30 +1,30 @@
 export {
-  registerOTel,
-  createLemmaSpanProcessor,
-  type LemmaOTelOptions,
-  type RegisterOTelOptions,
-  type CreateLemmaSpanProcessorOptions,
-} from "./register";
+  Lemma,
+  NoopSpanHandle,
+  SpanHandle,
+  TraceContext,
+  TraceHandle,
+  active,
+  type DetachedGenerationOptions,
+  type DetachedSpanOptions,
+  type DetachedToolOptions,
+  type GenerationOptions,
+  type JsonValue,
+  type LemmaClientOptions,
+  type SpanOptions,
+  type ToolOptions,
+  type TraceEndOptions,
+  type TraceOptions,
+} from "./client";
 export {
-  enableExperimentMode,
-  disableExperimentMode,
-  isExperimentModeEnabled,
-} from "./experiment-mode";
-export {
-  enableDebugMode,
   disableDebugMode,
+  enableDebugMode,
   isDebugModeEnabled,
+  lemmaDebug,
 } from "./debug-mode";
 export {
-  agent,
-  wrapAgent, // @deprecated — use agent instead
-  type TraceContext,
-  type WrapAgentOptions,
-  type WrapRunOptions,
-} from "./trace-wrapper";
-export {
-  trace,
-  tool,
-  llm,
-  retrieval,
-} from "./span-helpers";
+  vercelAI,
+  type LemmaVercelAIIntegrationOptions,
+  type VercelAIIntegrationOptions,
+  type VercelAITelemetryIntegration,
+} from "./vercel-ai";
