@@ -33,6 +33,24 @@ The default API endpoint is `https://api.uselemma.ai/traces/ingest`. Override
 the base URL with `baseUrl` / `base_url` when sending to a local or self-hosted
 Lemma API router.
 
+You can also pass configuration directly:
+
+```typescript
+const lemma = new Lemma({
+  apiKey: "sk_...",
+  projectId: "proj_...",
+  baseUrl: "https://api.uselemma.ai",
+});
+```
+
+```python
+lemma = Lemma(
+    api_key="sk_...",
+    project_id="proj_...",
+    base_url="https://api.uselemma.ai",
+)
+```
+
 ## TypeScript Quick Start
 
 ```typescript

@@ -224,6 +224,17 @@ export function recordSearch(docs: unknown[]) {
 
 The SDK sends to `${baseUrl}/traces/ingest`.
 
+You can pass configuration directly to the constructor instead of using
+environment variables:
+
+```typescript
+const lemma = new Lemma({
+  apiKey: "sk_...",
+  projectId: "proj_...",
+  baseUrl: "https://api.uselemma.ai",
+});
+```
+
 ## Debug Mode
 
 Debug mode logs trace starts, span starts, span completions, send attempts, and

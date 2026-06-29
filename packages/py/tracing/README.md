@@ -127,6 +127,17 @@ Use `attributes` for raw attributes that do not yet have a native SDK keyword.
 
 The SDK sends to `{base_url}/traces/ingest`.
 
+You can pass configuration directly to the constructor instead of using
+environment variables:
+
+```python
+lemma = Lemma(
+    api_key="sk_...",
+    project_id="proj_...",
+    base_url="https://api.uselemma.ai",
+)
+```
+
 ## Debug Mode
 
 Debug mode logs trace starts, span starts, span completions, send attempts, and
