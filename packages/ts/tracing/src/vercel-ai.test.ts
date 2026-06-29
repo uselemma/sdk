@@ -7,6 +7,198 @@ function jsonBody(call: unknown[]) {
 }
 
 describe("vercelAI", () => {
+  it("creates and ends an AI SDK v7 trace without lemma.trace", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const integration = vercelAI({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    integration.onStart?.({
+      functionId: "support-agent",
+      model: { provider: "openai", modelId: "gpt-4o" },
+      prompt: "where is my order?",
+    });
+
+    integration.onStepStart?.({
+      functionId: "support-agent",
+      callId: "call-1",
+      provider: "openai",
+      modelId: "gpt-4o",
+      stepNumber: 0,
+      messages: [{ role: "user", content: "where is my order?" }],
+    } as never);
+
+    integration.onStepEnd?.({
+      callId: "call-1",
+      stepNumber: 0,
+      model: { provider: "openai", modelId: "gpt-4o" },
+      text: "It arrives Friday.",
+      usage: { inputTokens: 12, outputTokens: 8 },
+      performance: { responseTimeMs: 100, stepTimeMs: 100 },
+    } as never);
+
+    await integration.onEnd?.({ text: "It arrives Friday." });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace).toMatchObject({
+      name: "support-agent",
+      input: "where is my order?",
+      output: "It arrives Friday.",
+    });
+    expect(body.trace.spans).toMatchObject([
+      {
+        name: "vercel-ai-generation",
+        type: "generation",
+        input: [{ role: "user", content: "where is my order?" }],
+        output: "It arrives Friday.",
+        model: "gpt-4o",
+      },
+    ]);
+  });
+
+  it("uses vercelAI agentName for managed traces", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const integration = vercelAI({
+      agentName: "docs-agent",
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    integration.onLanguageModelCallStart?.({
+      callId: "call-1",
+      provider: "openai",
+      modelId: "gpt-4o",
+      messages: [{ role: "user", content: "hello" }],
+    } as never);
+
+    integration.onLanguageModelCallEnd?.({
+      callId: "call-1",
+      provider: "openai",
+      modelId: "gpt-4o",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      content: [{ type: "text", text: "hi" }],
+      performance: { responseTimeMs: 10 },
+    } as never);
+
+    await integration.onEnd?.({ text: "hi" });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace).toMatchObject({
+      name: "docs-agent",
+      input: [{ role: "user", content: "hello" }],
+      output: "hi",
+    });
+  });
+
+  it("creates and ends an AI SDK v6 trace without lemma.trace", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const integration = vercelAI({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    integration.onStart?.({
+      functionId: "support-agent",
+      model: { provider: "openai", modelId: "gpt-4o" },
+      prompt: "hello",
+    });
+    await integration.onFinish?.({
+      functionId: "support-agent",
+      model: { provider: "openai", modelId: "gpt-4o" },
+      text: "hi",
+      totalUsage: { inputTokens: 1, outputTokens: 1 },
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.trace).toMatchObject({
+      name: "support-agent",
+      input: "hello",
+      output: "hi",
+    });
+    expect(body.trace.spans).toMatchObject([
+      {
+        name: "vercel-ai-generation",
+        type: "generation",
+        input: "hello",
+        output: "hi",
+      },
+    ]);
+  });
+
+  it("nests current AI SDK tool callbacks under the live generation", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const integration = vercelAI({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    integration.onStart?.({
+      functionId: "support-agent",
+      model: { provider: "openai", modelId: "gpt-4o" },
+      prompt: "find docs",
+    });
+    integration.onStepStart?.({
+      functionId: "support-agent",
+      stepNumber: 0,
+      model: { provider: "openai", modelId: "gpt-4o" },
+      messages: [{ role: "user", content: "find docs" }],
+      tools: { search_docs: { description: "Search docs" } },
+    });
+    integration.onToolCallStart?.({
+      toolCall: {
+        toolName: "search_docs",
+        toolCallId: "tool-1",
+        input: { query: "docs" },
+      },
+    } as never);
+    integration.onToolCallFinish?.({
+      toolCall: {
+        toolName: "search_docs",
+        toolCallId: "tool-1",
+        input: { query: "docs" },
+      },
+      durationMs: 25,
+      success: true,
+      output: [{ title: "Docs" }],
+    } as never);
+    integration.onStepFinish?.({
+      functionId: "support-agent",
+      stepNumber: 0,
+      model: { provider: "openai", modelId: "gpt-4o" },
+      text: "Found docs.",
+      usage: { inputTokens: 5, outputTokens: 4 },
+    });
+    await integration.onFinish?.({
+      functionId: "support-agent",
+      stepNumber: 0,
+      model: { provider: "openai", modelId: "gpt-4o" },
+      text: "Found docs.",
+      usage: { inputTokens: 5, outputTokens: 4 },
+      totalUsage: { inputTokens: 5, outputTokens: 4 },
+    });
+
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    const [generation, tool] = body.trace.spans;
+    expect(generation).toMatchObject({
+      name: "vercel-ai-generation",
+      type: "generation",
+      input: [{ role: "user", content: "find docs" }],
+      output: "Found docs.",
+    });
+    expect(tool).toMatchObject({
+      parent_id: generation.id,
+      name: "search_docs",
+      type: "tool",
+      input: { query: "docs" },
+      output: [{ title: "Docs" }],
+    });
+  });
+
   it("records AI SDK v7 step timing and nests tools under the generating step", async () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
     const lemma = new Lemma({

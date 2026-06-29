@@ -9,7 +9,7 @@ directly to Lemma over HTTP.
 
 | Package                                    | Language             | Current version | Path                  |
 | ------------------------------------------ | -------------------- | --------------- | --------------------- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.1.0`         | `packages/ts/tracing` |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.2.0`         | `packages/ts/tracing` |
 | [`uselemma-tracing`](packages/py/tracing)  | Python               | `4.1.0`         | `packages/py/tracing` |
 
 ## Install
@@ -178,17 +178,19 @@ AI SDK v7:
 
 ```typescript
 import { generateText } from "ai";
-import { Lemma, vercelAI } from "@uselemma/tracing";
+import { vercelAI } from "@uselemma/tracing";
 
-const lemma = new Lemma();
-
-const trace = lemma.trace({ name: "support-agent", input: userMessage });
+const lemmaTelemetry = vercelAI({
+  apiKey: process.env.LEMMA_API_KEY,
+  projectId: process.env.LEMMA_PROJECT_ID,
+});
 
 const result = await generateText({
   model,
   prompt: userMessage,
   telemetry: {
-    integrations: [vercelAI({ trace })],
+    functionId: "support-agent",
+    integrations: [lemmaTelemetry],
   },
 });
 
@@ -202,14 +204,19 @@ await generateText({
   model,
   prompt: userMessage,
   experimental_telemetry: {
-    integrations: [vercelAI({ trace })],
+    functionId: "support-agent",
+    integrations: [lemmaTelemetry],
   },
 });
 ```
 
-When you pass a trace handle, the integration closes it from the AI SDK terminal
-callback: `onEnd` in v7 and `onFinish` in v6. When you use the callback form of
-`lemma.trace()`, your callback owns trace closure.
+The integration creates and closes the Lemma trace for the AI SDK run, extracts
+the prompt/messages as trace input, and uses `functionId` as the agent name. You
+can also set the agent name with `vercelAI({ agentName: "support-agent" })`.
+
+For advanced cases, you can still pass a trace handle. The integration closes it
+from the AI SDK terminal callback: `onEnd` in v7 and `onFinish` in v6. When you
+use the callback form of `lemma.trace()`, your callback owns trace closure.
 
 The integration records model calls as generations and tool executions as tool
 spans. Use `vercelAI({ recordInputs: false, recordOutputs: false })` to avoid
