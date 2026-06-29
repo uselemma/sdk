@@ -1,65 +1,321 @@
-# Lemma Tracing
+# Lemma SDK
 
-Direct HTTP tracing SDKs for AI agents. Capture inputs, outputs, timing, token usage, and errors, then send completed trace payloads to [Lemma](https://uselemma.ai).
+Official SDKs for sending AI agent traces to Lemma. The tracing packages capture
+agent runs, spans, LLM generations, tool calls, inputs, outputs, timing, token
+usage, errors, and OpenInference-compatible attributes, then send trace payloads
+directly to Lemma over HTTP.
 
 ## Packages
 
-| Package | Language | Path | Description |
+| Package | Language | Current version | Path |
 | --- | --- | --- | --- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript | `packages/ts/tracing` | Node.js tracing SDK |
-| [`uselemma-tracing`](packages/py/tracing) | Python | `packages/py/tracing` | Python tracing SDK |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.0.1` | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing) | Python | `4.0.1` | `packages/py/tracing` |
 
-## Getting Started
-
-### TypeScript
+## Install
 
 ```bash
 npm install @uselemma/tracing
 ```
 
-See the [TypeScript package README](packages/ts/tracing/README.md) for usage.
-
-### Python
-
 ```bash
 pip install uselemma-tracing
 ```
 
-See the [Python package README](packages/py/tracing/README.md) for usage.
+Both SDKs read credentials from environment variables by default:
+
+```bash
+export LEMMA_API_KEY=...
+export LEMMA_PROJECT_ID=...
+```
+
+The default API endpoint is `https://api.uselemma.ai/traces/ingest`. Override
+the base URL with `baseUrl` / `base_url` when sending to a local or self-hosted
+Lemma API router.
+
+## TypeScript Quick Start
+
+```typescript
+import { Lemma } from "@uselemma/tracing";
+
+const lemma = new Lemma();
+
+const answer = await lemma.trace(
+  {
+    name: "support-agent",
+    input: userMessage,
+    threadId: conversationId,
+    userId: user.id,
+  },
+  async (trace) => {
+    const docs = await searchDocs(userMessage);
+
+    trace.recordTool({
+      name: "search_docs",
+      input: { query: userMessage },
+      output: docs,
+      toolParameters: { query: "string" },
+    });
+
+    const response = await callModel(userMessage, docs);
+    trace.recordGeneration({
+      name: "draft-reply",
+      input: response.messages,
+      output: response.text,
+      model: "gpt-4o",
+      usage: {
+        inputTokens: response.usage.inputTokens,
+        outputTokens: response.usage.outputTokens,
+      },
+      llmInputMessages: response.messages,
+      llmInvocationParameters: { temperature: 0.2 },
+    });
+
+    return response.text;
+  },
+);
+```
+
+`lemma.trace(options, callback)` measures the trace duration from the callback
+start to completion, sends the trace once the callback returns or throws, and
+marks the trace as failed when the callback throws.
+
+## Trace Handles
+
+Use a trace handle when work is coordinated across helpers and you want to pass
+IDs around explicitly.
+
+```typescript
+const trace = lemma.trace({
+  name: "support-agent",
+  input: userMessage,
+  threadId: conversationId,
+});
+
+const retrieval = trace.startSpan({
+  name: "retrieve-context",
+  input: { query: userMessage },
+});
+
+const docs = await searchDocs(userMessage);
+retrieval.recordTool({
+  name: "search_docs",
+  input: { query: userMessage },
+  output: docs,
+});
+retrieval.end({ output: { count: docs.length } });
+
+const generation = trace.startGeneration({
+  name: "draft-reply",
+  input: messages,
+  model: "gpt-4o",
+});
+const response = await callModel(messages);
+generation.end({
+  output: response.text,
+  usage: response.usage,
+});
+
+await trace.end({ output: response.text });
+```
+
+Handles know their start time when created and their end time when `.end()` is
+called, so you usually do not pass `durationMs`. Pass `durationMs` only when
+replaying historical work or when you need to override the measured duration
+with a value from another timer.
+
+## Recording By ID
+
+When a helper cannot receive a trace object, pass IDs explicitly. Detached
+operations require `traceId`; child operations also need `parentSpanId`.
+
+```typescript
+const trace = lemma.trace({ name: "support-agent", input: userMessage });
+
+const retrieval = lemma.startSpan({
+  traceId: trace.id,
+  name: "retrieve-context",
+  input: { query: userMessage },
+});
+
+lemma.recordTool({
+  traceId: trace.id,
+  parentSpanId: retrieval.id,
+  name: "search_docs",
+  output: docs,
+});
+
+retrieval.end({ output: { count: docs.length } });
+await trace.end({ output: "Done" });
+```
+
+Calls that cannot attach safely warn and no-op instead of creating orphaned
+observations.
+
+## Vercel AI SDK
+
+The TypeScript package supports both AI SDK v7 and v6.
+
+AI SDK v7:
+
+```typescript
+import { generateText } from "ai";
+import { Lemma, vercelAI } from "@uselemma/tracing";
+
+const lemma = new Lemma();
+
+const trace = lemma.trace({ name: "support-agent", input: userMessage });
+
+const result = await generateText({
+  model,
+  prompt: userMessage,
+  telemetry: {
+    integrations: [vercelAI({ trace })],
+  },
+});
+
+return result.text;
+```
+
+AI SDK v6:
+
+```typescript
+await generateText({
+  model,
+  prompt: userMessage,
+  experimental_telemetry: {
+    integrations: [vercelAI({ trace })],
+  },
+});
+```
+
+When you pass a trace handle, the integration closes it from the AI SDK terminal
+callback: `onEnd` in v7 and `onFinish` in v6. When you use the callback form of
+`lemma.trace()`, your callback owns trace closure.
+
+The integration records model calls as generations and tool executions as tool
+spans. Use `vercelAI({ recordInputs: false, recordOutputs: false })` to avoid
+sending prompts, tool inputs, tool outputs, and generated text.
+
+## Python Quick Start
+
+```python
+from uselemma_tracing import Lemma
+
+lemma = Lemma()
+
+def run(trace):
+    docs = search_docs(user_message)
+    trace.record_tool(
+        name="search_docs",
+        input={"query": user_message},
+        output=docs,
+        tool_parameters={"query": "string"},
+    )
+
+    response = call_model(user_message, docs)
+    trace.record_generation(
+        name="draft-reply",
+        input=response.messages,
+        output=response.text,
+        model="gpt-4o",
+        usage={
+            "input_tokens": response.usage.input_tokens,
+            "output_tokens": response.usage.output_tokens,
+        },
+        llm_input_messages=response.messages,
+        llm_invocation_parameters={"temperature": 0.2},
+    )
+
+    return response.text
+
+answer = lemma.trace(
+    "support-agent",
+    run,
+    input=user_message,
+    thread_id=conversation_id,
+    user_id=user.id,
+)
+```
+
+Python also supports `async_trace()`, `start_span()`, `start_tool()`, and
+`start_generation()` for measured live work.
+
+## Supported Span Fields
+
+Use first-class SDK options for common trace-contract fields:
+
+- trace fields: `name`, `input`, `output`, `metadata`, `threadId` /
+  `thread_id`, `userId` / `user_id`, `environment`, `durationMs` /
+  `duration_ms`
+- span fields: `name`, `type`, `input`, `output`, `metadata`, `attributes`,
+  `startedAt` / `started_at`, `endedAt` / `ended_at`, `durationMs` /
+  `duration_ms`, `status`, `error`
+- generation fields: `model`, `usage`, `llmModelName` / `llm_model_name`,
+  `llmProvider` / `llm_provider`, `llmSystem` / `llm_system`,
+  `llmInvocationParameters` / `llm_invocation_parameters`,
+  `llmInputMessages` / `llm_input_messages`, `llmOutputMessages` /
+  `llm_output_messages`, `llmTools` / `llm_tools`, token-count and prompt
+  template fields
+- tool fields: `toolName` / `tool_name`, `toolDescription` /
+  `tool_description`, `toolParameters` / `tool_parameters`
+- retrieval, embedding, and reranker fields:
+  `retrievalDocuments` / `retrieval_documents`, `embeddingModelName` /
+  `embedding_model_name`, `embeddingInvocationParameters` /
+  `embedding_invocation_parameters`, `embeddingEmbeddings` /
+  `embedding_embeddings`, `rerankerModelName` / `reranker_model_name`,
+  `rerankerInputDocuments` / `reranker_input_documents`,
+  `rerankerOutputDocuments` / `reranker_output_documents`
+
+Use `attributes` for raw attributes that do not yet have a first-class SDK
+option.
+
+## Debug Mode
+
+Debug mode logs trace lifecycle events, span starts, span completions, and send
+results as they happen.
+
+TypeScript:
+
+```typescript
+import { enableDebugMode } from "@uselemma/tracing";
+
+enableDebugMode();
+```
+
+Python:
+
+```python
+from uselemma_tracing import enable_debug_mode
+
+enable_debug_mode()
+```
+
+You can also set `LEMMA_DEBUG=true`. Use debug mode to confirm that spans are
+being created in the order you expect, that parent IDs are attached, and that
+the SDK is sending to the intended URL.
 
 ## Development
 
-This is a polyglot monorepo managed with:
-
-- **[pnpm](https://pnpm.io/)** workspaces for TypeScript packages
-- **[Turborepo](https://turbo.build/)** for build orchestration and caching
-- **[uv](https://docs.astral.sh/uv/)** for Python packages
-
-### Prerequisites
-
-- Node.js >= 18
-- pnpm >= 9
-- Python >= 3.11
-- uv
-
-### Build all TypeScript packages
-
 ```bash
 pnpm install
-pnpm build
+pnpm --filter @uselemma/tracing test
+pnpm --filter @uselemma/tracing type-check
 ```
-
-### Install Python dependencies
 
 ```bash
 uv sync
+cd packages/py/tracing
+uv run pytest
 ```
 
 ## Documentation
 
+- [TypeScript package README](packages/ts/tracing/README.md)
+- [Python package README](packages/py/tracing/README.md)
 - [Tracing Overview](https://docs.uselemma.ai/tracing/overview)
+- [Trace Contract](https://docs.uselemma.ai/reference/trace-contract)
 - [Vercel AI SDK Integration](https://docs.uselemma.ai/tracing/integrations/vercel-ai-sdk)
-- [OpenAI Agents Integration](https://docs.uselemma.ai/tracing/integrations/openai-agents)
 
 ## License
 

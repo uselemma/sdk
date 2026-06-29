@@ -1,6 +1,6 @@
 # @uselemma/tracing
 
-HTTP tracing SDK for AI agents. No OpenTelemetry setup is required: the SDK sends completed trace payloads directly to the Lemma API.
+HTTP tracing SDK for AI agents. No OpenTelemetry setup is required: the SDK sends trace payloads directly to the Lemma API.
 
 ## Installation
 
@@ -74,6 +74,7 @@ trace.recordGeneration({
   input: messages,
   output: text,
   model: "gpt-4o",
+  durationMs: measuredModelMs,
   llmInputMessages: [{ role: "user", content: userMessage }],
   llmInvocationParameters: { temperature: 0.2 },
 });
@@ -89,7 +90,7 @@ Use `startSpan()`, `startTool()`, or `startGeneration()` when you want the SDK t
 const span = trace.startSpan({ name: "retrieve-context", input: query });
 try {
   const docs = await retrieve(query);
-  span.end({ output: docs, durationMs: 250 });
+  span.end({ output: docs });
 } catch (error) {
   span.end({ error });
   throw error;
@@ -99,7 +100,7 @@ try {
 ```typescript
 const tool = trace.startTool({ name: "search_docs", input: { query } });
 const docs = await searchDocs(query);
-tool.end({ output: docs, durationMs: 25 });
+tool.end({ output: docs });
 
 const generation = trace.startGeneration({
   name: "answer",
@@ -107,10 +108,10 @@ const generation = trace.startGeneration({
   model: "gpt-4o",
 });
 const response = await callModel(messages);
-generation.end({ output: response.text, durationMs: response.durationMs });
+generation.end({ output: response.text, usage: response.usage });
 ```
 
-The SDK measures trace durations from timestamps. Pass `durationMs` on callback traces, spans, generations, tools, `span.end({ durationMs })`, or `trace.end({ durationMs })` when you already measured the work yourself. When child spans, generations, or tools omit `durationMs`, Lemma splits the parent's remaining unclaimed duration equally across siblings that also omitted duration.
+The SDK measures live handle durations from start and end timestamps. Pass `durationMs` only when replaying historical work or overriding the measured duration with a value from another timer. When child spans, generations, or tools omit `durationMs`, Lemma derives timing from timestamps during ingest.
 
 You can also create a trace handle first and record work on it over time:
 
@@ -127,7 +128,6 @@ span.recordTool({
 });
 span.end({
   output: { count: docs.length },
-  durationMs: 250,
   retrievalDocuments: docs.map((doc) => ({
     id: doc.id,
     content: doc.text,
@@ -135,8 +135,10 @@ span.end({
   })),
 });
 
-await trace.end({ output: "final answer", durationMs: 1234 });
+await trace.end({ output: "final answer" });
 ```
+
+For live trace handles, `trace.end({ output })` is usually enough. Pass `durationMs` to `trace.end()` only when you need to override the measured trace duration.
 
 ## Vercel AI SDK
 
@@ -219,6 +221,38 @@ export function recordSearch(docs: unknown[]) {
 | `apiKey`    | `LEMMA_API_KEY`      | Required                  |
 | `projectId` | `LEMMA_PROJECT_ID`   | Required                  |
 | `baseUrl`   | none                 | `https://api.uselemma.ai` |
+
+The SDK sends to `${baseUrl}/traces/ingest`.
+
+## Debug Mode
+
+Debug mode logs trace starts, span starts, span completions, send attempts, and
+send results as they happen:
+
+```typescript
+import { enableDebugMode } from "@uselemma/tracing";
+
+enableDebugMode();
+```
+
+You can also set `LEMMA_DEBUG=true`. Use this when validating that spans arrive
+in the expected order, parent IDs are attached, and the SDK is sending to the
+right URL.
+
+## Supported Contract Fields
+
+Use native SDK props for OpenInference-style fields:
+
+- LLM: `llmModelName`, `llmProvider`, `llmSystem`,
+  `llmInvocationParameters`, `llmInputMessages`, `llmOutputMessages`,
+  `llmTools`, token counts, and prompt template fields
+- tools: `toolName`, `toolDescription`, `toolParameters`
+- retrieval: `retrievalDocuments`
+- embeddings and rerankers: `embeddingModelName`,
+  `embeddingInvocationParameters`, `embeddingEmbeddings`,
+  `rerankerModelName`, `rerankerInputDocuments`, `rerankerOutputDocuments`
+
+Use `attributes` for raw attributes that do not yet have a native SDK prop.
 
 ## Documentation
 
