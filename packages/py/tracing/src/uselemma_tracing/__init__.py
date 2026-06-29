@@ -1,4 +1,4 @@
-from .client import Lemma, SpanHandle, TraceContext, active
+from .client import Lemma, SpanHandle, TraceContext
 from .experiment_mode import (
     disable_experiment_mode,
     enable_experiment_mode,
@@ -20,7 +20,6 @@ __all__ = [
     "Lemma",
     "SpanHandle",
     "TraceContext",
-    "active",
     # Mode flags
     "enable_experiment_mode",
     "disable_experiment_mode",

@@ -1,4 +1,4 @@
-import { Lemma, active } from "@uselemma/tracing";
+import { Lemma } from "@uselemma/tracing";
 
 const lemma = new Lemma({
   apiKey: process.env.LEMMA_API_KEY,
@@ -39,7 +39,7 @@ export async function runSupportAgent(userMessage: string) {
       });
 
       const response = await callModel(userMessage, docs);
-      active().recordGeneration({
+      trace.recordGeneration({
         name: "draft-reply",
         input: response.messages,
         output: response.text,

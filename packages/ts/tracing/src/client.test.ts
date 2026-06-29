@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Lemma, active } from "./client";
+import { Lemma } from "./client";
 import { disableDebugMode, enableDebugMode } from "./debug-mode";
 
 function jsonBody(call: unknown[]) {
@@ -32,7 +32,7 @@ describe("Lemma", () => {
           durationMs: 25,
           toolParameters: { query: "string" },
         });
-        active().recordGeneration({
+        trace.recordGeneration({
           name: "draft-reply",
           input: "prompt",
           output: "answer",

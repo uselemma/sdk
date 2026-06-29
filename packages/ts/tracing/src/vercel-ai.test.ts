@@ -207,8 +207,8 @@ describe("vercelAI", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    await lemma.trace("support-agent", async () => {
-      const integration = vercelAI();
+    await lemma.trace("support-agent", async (trace) => {
+      const integration = vercelAI({ trace });
 
       integration.onStepStart?.({
         callId: "call-1",
@@ -313,8 +313,8 @@ describe("vercelAI", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    await lemma.trace("support-agent", async () => {
-      const integration = vercelAI();
+    await lemma.trace("support-agent", async (trace) => {
+      const integration = vercelAI({ trace });
 
       integration.onLanguageModelCallStart?.({
         callId: "call-1",
@@ -387,8 +387,9 @@ describe("vercelAI", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    await lemma.trace("support-agent", async () => {
+    await lemma.trace("support-agent", async (trace) => {
       const integration = vercelAI({
+        trace,
         recordInputs: false,
         recordOutputs: false,
       });
@@ -445,8 +446,8 @@ describe("vercelAI", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    await lemma.trace("support-agent", async () => {
-      const integration = vercelAI();
+    await lemma.trace("support-agent", async (trace) => {
+      const integration = vercelAI({ trace });
 
       integration.onStart?.({
         model: { provider: "openai", modelId: "gpt-4o" },
@@ -517,8 +518,8 @@ describe("vercelAI", () => {
       fetch: fetchMock as typeof fetch,
     });
 
-    await lemma.trace("support-agent", async () => {
-      const integration = vercelAI();
+    await lemma.trace("support-agent", async (trace) => {
+      const integration = vercelAI({ trace });
 
       integration.onStart?.({
         model: { provider: "openai", modelId: "gpt-4o" },

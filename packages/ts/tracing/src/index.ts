@@ -4,7 +4,6 @@ export {
   SpanHandle,
   TraceContext,
   TraceHandle,
-  active,
   type DetachedGenerationOptions,
   type DetachedSpanOptions,
   type DetachedToolOptions,

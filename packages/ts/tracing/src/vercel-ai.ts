@@ -1,5 +1,4 @@
 import {
-  active,
   Lemma,
   type LemmaClientOptions,
   type SpanHandle,
@@ -250,7 +249,7 @@ type StoredToolExecution = {
   startedAt: Date;
 };
 
-type TraceSource = "explicit" | "active" | "managed";
+type TraceSource = "explicit" | "managed";
 
 type ResolvedTrace = {
   trace: TraceContext;
@@ -426,18 +425,14 @@ export function vercelAI(
       | VercelAIModelCallStartEvent,
   ): ResolvedTrace {
     if (options.trace) return { trace: options.trace, source: "explicit" };
-    try {
-      return { trace: active(), source: "active" };
-    } catch {
-      if (!managedTrace) {
-        managedTrace = getLemma().trace({
-          name: traceName(options, event),
-          input: options.recordInputs === false ? undefined : traceInput(event),
-          metadata: traceMetadata(options, event),
-        });
-      }
-      return { trace: managedTrace, source: "managed" };
+    if (!managedTrace) {
+      managedTrace = getLemma().trace({
+        name: traceName(options, event),
+        input: options.recordInputs === false ? undefined : traceInput(event),
+        metadata: traceMetadata(options, event),
+      });
     }
+    return { trace: managedTrace, source: "managed" };
   }
 
   function endOutput(event: VercelAIEndEvent | VercelAIV6FinishEvent) {

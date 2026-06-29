@@ -9,8 +9,8 @@ directly to Lemma over HTTP.
 
 | Package                                    | Language             | Current version | Path                  |
 | ------------------------------------------ | -------------------- | --------------- | --------------------- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.3.0`         | `packages/ts/tracing` |
-| [`uselemma-tracing`](packages/py/tracing)  | Python               | `4.2.0`         | `packages/py/tracing` |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `5.0.0`         | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing)  | Python               | `5.0.0`         | `packages/py/tracing` |
 
 ## Install
 

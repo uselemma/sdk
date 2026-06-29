@@ -264,20 +264,20 @@ await trace.flush();
 
 Detached handle calls require `traceId`. If a detached observation has a parent, pass `parentSpanId`; calls that cannot attach safely warn and no-op.
 
-## Active Context
-
-The SDK keeps the active trace in async context, so helpers deeper in your code can record without receiving the context explicitly:
+## Passing Trace Context
 
 ```typescript
-import { active } from "@uselemma/tracing";
+import type { TraceContext } from "@uselemma/tracing";
 
-export function recordSearch(docs: unknown[]) {
-  active().recordTool({
+export function recordSearch(trace: TraceContext, docs: unknown[]) {
+  trace.recordTool({
     name: "search_docs",
     output: docs,
   });
 }
 ```
+
+Pass the `trace` or span handle into helpers that need to record child work. The SDK does not use ambient trace context because one process can coordinate multiple traces at once.
 
 ## Configuration
 

@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { lemmaDebug } from "./debug-mode";
 
 export type JsonValue =
@@ -153,8 +152,6 @@ type DebugSpanSummary = {
   hasOutput: boolean;
   hasError: boolean;
 };
-
-const activeTrace = new AsyncLocalStorage<TraceContext>();
 
 function required(value: string | undefined, envName: string): string {
   if (value?.trim()) return value.trim();
@@ -871,7 +868,7 @@ export class Lemma {
 
     return (async () => {
       try {
-        const result = await activeTrace.run(context, () => fn(context));
+        const result = await fn(context);
         if (traceOptions.output === undefined) {
           context.output(result);
         }
@@ -885,12 +882,7 @@ export class Lemma {
     })();
   }
 
-  recordSpan(
-    options: DetachedSpanOptions | string,
-  ): SpanHandle | NoopSpanHandle {
-    if (typeof options === "string") {
-      return active().recordSpan(options);
-    }
+  recordSpan(options: DetachedSpanOptions): SpanHandle | NoopSpanHandle {
     const context = this.detachedTraceFor(options.traceId, "span");
     if (!context) return new NoopSpanHandle();
     const {
@@ -912,11 +904,7 @@ export class Lemma {
     });
   }
 
-  recordGeneration(options: DetachedGenerationOptions | string) {
-    if (typeof options === "string") {
-      active().recordGeneration(options);
-      return;
-    }
+  recordGeneration(options: DetachedGenerationOptions) {
     const context = this.detachedTraceFor(options.traceId, "generation");
     if (!context) return;
     const {
@@ -938,11 +926,7 @@ export class Lemma {
     });
   }
 
-  recordTool(options: DetachedToolOptions | string) {
-    if (typeof options === "string") {
-      active().recordTool(options);
-      return;
-    }
+  recordTool(options: DetachedToolOptions) {
     const context = this.detachedTraceFor(options.traceId, "tool");
     if (!context) return;
     const {
@@ -964,105 +948,86 @@ export class Lemma {
     });
   }
 
-  startSpan(
-    options: Omit<SpanOptions, "endedAt"> | DetachedSpanOptions,
-  ): SpanHandle | NoopSpanHandle {
-    if ("traceId" in options) {
-      const context = this.detachedTraceFor(options.traceId, "span");
-      if (!context) return new NoopSpanHandle();
-      const {
-        traceId: _traceId,
-        parentSpanId,
-        parentId,
-        ...spanOptions
-      } = options;
-      if (parentId && !parentSpanId) {
-        warnNoop(
-          "span has a parent, but parentSpanId was not provided; skipping span",
-        );
-        return new NoopSpanHandle();
-      }
-      return context.startSpan({
-        name: "span",
-        ...spanOptions,
-        parentId: parentSpanId ?? null,
-      });
+  startSpan(options: DetachedSpanOptions): SpanHandle | NoopSpanHandle {
+    const context = this.detachedTraceFor(options.traceId, "span");
+    if (!context) return new NoopSpanHandle();
+    const {
+      traceId: _traceId,
+      parentSpanId,
+      parentId,
+      ...spanOptions
+    } = options;
+    if (parentId && !parentSpanId) {
+      warnNoop(
+        "span has a parent, but parentSpanId was not provided; skipping span",
+      );
+      return new NoopSpanHandle();
     }
-    return active().startSpan(options as Omit<SpanOptions, "endedAt">);
+    return context.startSpan({
+      name: "span",
+      ...spanOptions,
+      parentId: parentSpanId ?? null,
+    });
   }
 
   startGeneration(
-    options:
-      | Omit<GenerationOptions, "endedAt" | "type">
-      | DetachedGenerationOptions,
+    options: DetachedGenerationOptions,
   ): SpanHandle | NoopSpanHandle {
-    if ("traceId" in options) {
-      const context = this.detachedTraceFor(options.traceId, "generation");
-      if (!context) return new NoopSpanHandle();
-      const {
-        traceId: _traceId,
-        parentSpanId,
-        parentId,
-        ...generationOptions
-      } = options;
-      if (parentId && !parentSpanId) {
-        warnNoop(
-          "generation has a parent, but parentSpanId was not provided; skipping generation",
-        );
-        return new NoopSpanHandle();
-      }
-      return context.startGeneration({
-        name: "generation",
-        ...generationOptions,
-        parentId: parentSpanId ?? null,
-      });
+    const context = this.detachedTraceFor(options.traceId, "generation");
+    if (!context) return new NoopSpanHandle();
+    const {
+      traceId: _traceId,
+      parentSpanId,
+      parentId,
+      ...generationOptions
+    } = options;
+    if (parentId && !parentSpanId) {
+      warnNoop(
+        "generation has a parent, but parentSpanId was not provided; skipping generation",
+      );
+      return new NoopSpanHandle();
     }
-    return active().startGeneration(
-      options as Omit<GenerationOptions, "endedAt" | "type">,
-    );
+    return context.startGeneration({
+      name: "generation",
+      ...generationOptions,
+      parentId: parentSpanId ?? null,
+    });
   }
 
-  startTool(
-    options: Omit<ToolOptions, "endedAt" | "type"> | DetachedToolOptions,
-  ): SpanHandle | NoopSpanHandle {
-    if ("traceId" in options) {
-      const context = this.detachedTraceFor(options.traceId, "tool");
-      if (!context) return new NoopSpanHandle();
-      const {
-        traceId: _traceId,
-        parentSpanId,
-        parentId,
-        ...toolOptions
-      } = options;
-      if (parentId && !parentSpanId) {
-        warnNoop(
-          "tool has a parent, but parentSpanId was not provided; skipping tool",
-        );
-        return new NoopSpanHandle();
-      }
-      return context.startTool({
-        name: "tool",
-        ...toolOptions,
-        parentId: parentSpanId ?? null,
-      });
+  startTool(options: DetachedToolOptions): SpanHandle | NoopSpanHandle {
+    const context = this.detachedTraceFor(options.traceId, "tool");
+    if (!context) return new NoopSpanHandle();
+    const {
+      traceId: _traceId,
+      parentSpanId,
+      parentId,
+      ...toolOptions
+    } = options;
+    if (parentId && !parentSpanId) {
+      warnNoop(
+        "tool has a parent, but parentSpanId was not provided; skipping tool",
+      );
+      return new NoopSpanHandle();
     }
-    return active().startTool(options as Omit<ToolOptions, "endedAt" | "type">);
+    return context.startTool({
+      name: "tool",
+      ...toolOptions,
+      parentId: parentSpanId ?? null,
+    });
   }
 
   /** @deprecated Use startSpan() or recordSpan(). */
-  span(options: DetachedSpanOptions | string): SpanHandle | NoopSpanHandle {
-    return typeof options === "string"
-      ? active().startSpan({ name: options })
-      : this.recordSpan(options);
+  span(options: DetachedSpanOptions): SpanHandle | NoopSpanHandle {
+    return this.recordSpan(options);
   }
 
   /** @deprecated Use recordGeneration() or startGeneration(). */
-  generation(options: DetachedGenerationOptions | string) {
+  generation(options: DetachedGenerationOptions) {
     this.recordGeneration(options);
   }
 
   /** @deprecated Use recordTool() or startTool(). */
-  tool(options: DetachedToolOptions | string) {
+  tool(options: DetachedToolOptions) {
     this.recordTool(options);
   }
 
@@ -1135,12 +1100,4 @@ export class Lemma {
       status: response.status,
     });
   }
-}
-
-export function active(): TraceContext {
-  const trace = activeTrace.getStore();
-  if (!trace) {
-    throw new Error("@uselemma/tracing: no active trace context");
-  }
-  return trace;
 }

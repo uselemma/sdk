@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextvars
 import inspect
 import json
 import os
@@ -16,12 +15,6 @@ from .debug_mode import _lemma_debug
 T = TypeVar("T")
 SpanType = Literal["span", "generation", "tool"]
 Status = Literal["OK", "ERROR"]
-
-_active_trace: contextvars.ContextVar["TraceContext | None"] = contextvars.ContextVar(
-    "lemma_active_trace",
-    default=None,
-)
-
 
 class Usage(TypedDict, total=False):
     input_tokens: int
@@ -828,7 +821,6 @@ class Lemma:
         )
         started_at = _now()
         _lemma_debug("client", "trace started", name=ctx.name)
-        token = _active_trace.set(ctx)
         try:
             result = fn(ctx)
             if ctx.output_value is None:
@@ -839,8 +831,6 @@ class Lemma:
             ctx.fail(exc)
             self._send(ctx, started_at, _now())
             raise
-        finally:
-            _active_trace.reset(token)
 
     async def async_trace(
         self,
@@ -865,7 +855,6 @@ class Lemma:
         )
         started_at = _now()
         _lemma_debug("client", "trace started", name=ctx.name)
-        token = _active_trace.set(ctx)
         try:
             maybe_result = fn(ctx)
             result = (
@@ -881,8 +870,6 @@ class Lemma:
             ctx.fail(exc)
             self._send(ctx, started_at, _now())
             raise
-        finally:
-            _active_trace.reset(token)
 
     def _send(
         self, ctx: TraceContext, started_at: datetime, ended_at: datetime
@@ -922,10 +909,3 @@ class Lemma:
                 return response.status, response.read().decode()
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode()
-
-
-def active() -> TraceContext:
-    ctx = _active_trace.get()
-    if ctx is None:
-        raise RuntimeError("uselemma-tracing: no active trace context")
-    return ctx

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from uselemma_tracing.client import Lemma, active
+from uselemma_tracing.client import Lemma
 from uselemma_tracing.debug_mode import disable_debug_mode, enable_debug_mode
 
 PROJECT_ID = "10000000-0000-0000-0000-000000000001"
@@ -34,7 +34,7 @@ def test_lemma_trace_posts_completed_trace():
                 duration_ms=25,
                 tool_parameters={"query": "string"},
             ),
-            active().generation(
+            trace.record_generation(
                 name="draft-reply",
                 input="prompt",
                 output="answer",
