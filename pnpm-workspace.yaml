@@ -1,2 +1,2 @@
 packages:
-  - "packages/ts/*"
+  - "packages/ts/tracing"
