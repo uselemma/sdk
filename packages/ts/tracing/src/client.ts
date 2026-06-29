@@ -138,6 +138,22 @@ type SdkTracePayload = {
   replace?: boolean;
 };
 
+type DebugSpanSummary = {
+  index?: number;
+  id?: string;
+  parentId?: string | null;
+  name: string;
+  type: SpanType;
+  status?: "OK" | "ERROR";
+  durationMs?: number;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  hasInput: boolean;
+  hasOutput: boolean;
+  hasError: boolean;
+};
+
 const activeTrace = new AsyncLocalStorage<TraceContext>();
 
 function required(value: string | undefined, envName: string): string {
@@ -172,6 +188,29 @@ function elapsedMs(
   const endMs = timestampMs(end);
   if (startMs == null || endMs == null) return undefined;
   return Math.max(0, endMs - startMs);
+}
+
+function summarizeSpanForDebug(
+  span: SdkTraceSpanPayload,
+  index?: number,
+): DebugSpanSummary {
+  return Object.fromEntries(
+    Object.entries({
+      index,
+      id: span.id,
+      parentId: span.parent_id,
+      name: span.name,
+      type: span.type,
+      status: span.status,
+      durationMs: span.duration_ms,
+      model: span.model,
+      inputTokens: span.usage?.input_tokens,
+      outputTokens: span.usage?.output_tokens,
+      hasInput: span.input !== undefined,
+      hasOutput: span.output !== undefined,
+      hasError: Boolean(span.error),
+    }).filter(([, value]) => value !== undefined),
+  ) as DebugSpanSummary;
 }
 
 function serializeAttribute(value: unknown): unknown {
@@ -381,13 +420,13 @@ function isTraceEndOptions(value: unknown): value is TraceEndOptions {
 
 export class SpanHandle {
   readonly id: string;
-  private ended = false;
   private readonly payload: SdkTraceSpanPayload;
 
   constructor(
     private readonly trace: TraceContext,
     private readonly options: SpanOptions,
     payload?: SdkTraceSpanPayload,
+    private ended = false,
   ) {
     this.id = options.id ?? crypto.randomUUID();
     this.payload =
@@ -416,6 +455,7 @@ export class SpanHandle {
         this.options.type ?? "span",
       ),
     );
+    this.trace.spanEnded(this.payload);
     this.trace.changed();
   }
 
@@ -585,11 +625,23 @@ export class TraceContext {
     this.onChange = onChange;
   }
 
-  addSpan(options: SpanOptions): SdkTraceSpanPayload {
+  private debugSpan(event: string, span: SdkTraceSpanPayload) {
+    lemmaDebug("client", event, {
+      traceId: this.id,
+      span: summarizeSpanForDebug(span),
+    });
+  }
+
+  addSpan(options: SpanOptions, event = "span started"): SdkTraceSpanPayload {
     const span = normalizeSpan(options, "span");
     this.spans.push(span);
+    this.debugSpan(event, span);
     this.changed();
     return span;
+  }
+
+  spanEnded(span: SdkTraceSpanPayload) {
+    this.debugSpan("span ended", span);
   }
 
   recordSpan(name: string): SpanHandle;
@@ -599,8 +651,8 @@ export class TraceContext {
       return this.startSpan({ name: options });
     }
     const spanId = options.id ?? crypto.randomUUID();
-    const span = this.addSpan({ ...options, id: spanId });
-    const handle = new SpanHandle(
+    const span = this.addSpan({ ...options, id: spanId }, "span recorded");
+    return new SpanHandle(
       this,
       {
         ...options,
@@ -609,24 +661,28 @@ export class TraceContext {
         endedAt: span.ended_at,
       },
       span,
+      true,
     );
-    handle.end({ endedAt: span.ended_at ?? new Date() });
-    return handle;
   }
 
   recordGeneration(options: string | GenerationOptions) {
     const generationOptions =
       typeof options === "string" ? { name: options } : options;
-    this.spans.push(
-      normalizeSpan({ ...generationOptions, type: "generation" }, "generation"),
+    const span = normalizeSpan(
+      { ...generationOptions, type: "generation" },
+      "generation",
     );
+    this.spans.push(span);
+    this.debugSpan("span recorded", span);
     this.changed();
   }
 
   recordTool(options: string | ToolOptions) {
     const toolOptions =
       typeof options === "string" ? { name: options } : options;
-    this.spans.push(normalizeSpan({ ...toolOptions, type: "tool" }, "tool"));
+    const span = normalizeSpan({ ...toolOptions, type: "tool" }, "tool");
+    this.spans.push(span);
+    this.debugSpan("span recorded", span);
     this.changed();
   }
 
@@ -1040,7 +1096,12 @@ export class Lemma {
     endedAt: Date,
     replace = false,
   ) {
-    const payload = context.toPayload(this.projectId, startedAt, endedAt, replace);
+    const payload = context.toPayload(
+      this.projectId,
+      startedAt,
+      endedAt,
+      replace,
+    );
     const url = `${this.baseUrl}/traces/ingest`;
     lemmaDebug("client", "sending trace", {
       traceId: payload.trace.id,

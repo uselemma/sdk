@@ -1,4 +1,4 @@
-import { active, type TraceContext } from "./client";
+import { active, type SpanHandle, type TraceContext } from "./client";
 
 type MaybePromise<T> = T | PromiseLike<T>;
 
@@ -30,7 +30,9 @@ type VercelAIEndEvent = {
 };
 
 type VercelAIToolExecutionEndEvent = {
+  callId?: string;
   toolCall: {
+    toolCallId?: string;
     toolName: string;
     input?: unknown;
   };
@@ -44,6 +46,46 @@ type VercelAIToolExecutionEndEvent = {
         type: "tool-error";
         error?: unknown;
       };
+};
+
+type VercelAIToolExecutionStartEvent = {
+  callId?: string;
+  toolCall: {
+    toolCallId?: string;
+    toolName: string;
+    input?: unknown;
+  };
+};
+
+type VercelAIStepStartEvent = {
+  callId: string;
+  provider: string;
+  modelId: string;
+  stepNumber: number;
+  messages?: unknown[];
+  tools?: unknown;
+};
+
+type VercelAIStepEndEvent = {
+  callId: string;
+  stepNumber: number;
+  model: VercelAIV6ModelInfo;
+  text?: string;
+  content?: ReadonlyArray<unknown>;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+  };
+  performance?: {
+    stepTimeMs?: number;
+    responseTimeMs?: number;
+    toolExecutionMs?: Readonly<Record<string, number>>;
+  };
+  toolCalls?: ReadonlyArray<{
+    toolCallId?: string;
+    toolName?: string;
+    input?: unknown;
+  }>;
 };
 
 type VercelAIV6ModelInfo = {
@@ -92,6 +134,7 @@ type VercelAIV6FinishEvent = {
 
 type VercelAIV6ToolCallFinishEvent = {
   toolCall: {
+    toolCallId?: string;
     toolName: string;
     input?: unknown;
   };
@@ -116,11 +159,17 @@ export type VercelAITelemetryIntegration = {
   onLanguageModelCallEnd?: (
     event: VercelAIModelCallEndEvent,
   ) => MaybePromise<void>;
+  onToolExecutionStart?: (
+    event: VercelAIToolExecutionStartEvent,
+  ) => MaybePromise<void>;
   onToolExecutionEnd?: (
     event: VercelAIToolExecutionEndEvent,
   ) => MaybePromise<void>;
   onStart?: (event: VercelAIV6StartEvent) => MaybePromise<void>;
-  onStepStart?: (event: VercelAIV6StepStartEvent) => MaybePromise<void>;
+  onStepStart?: (
+    event: VercelAIStepStartEvent | VercelAIV6StepStartEvent,
+  ) => MaybePromise<void>;
+  onStepEnd?: (event: VercelAIStepEndEvent) => MaybePromise<void>;
   onStepFinish?: (event: VercelAIV6StepFinishEvent) => MaybePromise<void>;
   onFinish?: (event: VercelAIV6FinishEvent) => MaybePromise<void>;
   onEnd?: (event: VercelAIEndEvent) => MaybePromise<void>;
@@ -152,12 +201,46 @@ export type VercelAIIntegrationOptions = {
 type StoredModelCall = {
   event: VercelAIModelCallStartEvent;
   startedAt: Date;
+  handle?: SpanHandle;
 };
 
 type StoredV6Step = {
   event: VercelAIV6StepStartEvent | VercelAIV6StartEvent;
   startedAt: Date;
 };
+
+type StoredV7Step = {
+  event: VercelAIStepStartEvent;
+  startedAt: Date;
+  handle: SpanHandle;
+};
+
+type StoredToolExecution = {
+  handle: SpanHandle;
+  startedAt: Date;
+};
+
+function addMs(startedAt: Date, durationMs: number | undefined): Date {
+  return typeof durationMs === "number"
+    ? new Date(startedAt.getTime() + durationMs)
+    : new Date();
+}
+
+function subtractMs(endedAt: Date, durationMs: number | undefined): Date {
+  return typeof durationMs === "number"
+    ? new Date(endedAt.getTime() - durationMs)
+    : endedAt;
+}
+
+function v7StepKey(callId: string, stepNumber: number) {
+  return `${callId}:${stepNumber}`;
+}
+
+function isV7StepStart(
+  event: VercelAIStepStartEvent | VercelAIV6StepStartEvent,
+): event is VercelAIStepStartEvent {
+  return "callId" in event && "provider" in event && "modelId" in event;
+}
 
 function getTrace(trace: TraceContext | undefined): TraceContext | undefined {
   if (trace) return trace;
@@ -239,8 +322,12 @@ export function vercelAI(
   options: VercelAIIntegrationOptions = {},
 ): VercelAITelemetryIntegration {
   const modelCalls = new Map<string, StoredModelCall>();
+  const v7Steps = new Map<string, StoredV7Step>();
   const v6Steps = new Map<number, StoredV6Step>();
   const v6Starts: StoredV6Step[] = [];
+  const generationSpanIdsByCallId = new Map<string, string>();
+  const generationSpanIdsByToolCallId = new Map<string, string>();
+  const toolExecutions = new Map<string, StoredToolExecution>();
   let recordedV6Step = false;
   let endedExplicitTrace = false;
 
@@ -279,6 +366,7 @@ export function vercelAI(
 
     const startedAt = stored?.startedAt ?? new Date();
     const endedAt = new Date();
+    const id = crypto.randomUUID();
     const name =
       typeof options.generationName === "function"
         ? options.generationName(event)
@@ -287,6 +375,7 @@ export function vercelAI(
     const output = v6Output(event);
 
     trace.recordGeneration({
+      id,
       name,
       input:
         options.recordInputs === false
@@ -312,53 +401,175 @@ export function vercelAI(
           : [{ role: "assistant", content: output }],
       llmTools: stored?.event.tools,
     });
+    generationSpanIdsByCallId.set("v6-latest", id);
+  }
+
+  function startV7Generation(event: VercelAIStepStartEvent) {
+    const trace = getTrace(options.trace);
+    if (!trace) return;
+
+    const name =
+      typeof options.generationName === "function"
+        ? options.generationName({
+            callId: event.callId,
+            provider: event.provider,
+            modelId: event.modelId,
+            usage: {},
+            content: [],
+            performance: {},
+          })
+        : (options.generationName ?? "vercel-ai-generation");
+    const startedAt = new Date();
+    const handle = trace.startGeneration({
+      name,
+      input: options.recordInputs === false ? undefined : event.messages,
+      metadata: options.metadata,
+      model: event.modelId,
+      startedAt,
+      llmProvider: event.provider,
+      llmInputMessages:
+        options.recordInputs === false ? undefined : event.messages,
+      llmTools: event.tools,
+    });
+
+    const stored = { event, startedAt, handle };
+    v7Steps.set(v7StepKey(event.callId, event.stepNumber), stored);
+    generationSpanIdsByCallId.set(event.callId, handle.id);
+  }
+
+  function endV7Generation(event: VercelAIStepEndEvent) {
+    const stored = v7Steps.get(v7StepKey(event.callId, event.stepNumber));
+    v7Steps.delete(v7StepKey(event.callId, event.stepNumber));
+    if (!stored) return;
+
+    const durationMs =
+      event.performance?.stepTimeMs ?? event.performance?.responseTimeMs;
+    const output =
+      typeof event.text === "string"
+        ? event.text
+        : event.content
+          ? stringifyContent(event.content)
+          : undefined;
+
+    for (const toolCall of event.toolCalls ?? []) {
+      if (toolCall.toolCallId) {
+        generationSpanIdsByToolCallId.set(
+          toolCall.toolCallId,
+          stored.handle.id,
+        );
+      }
+    }
+
+    stored.handle.end({
+      output: options.recordOutputs === false ? undefined : output,
+      usage: {
+        inputTokens: event.usage?.inputTokens,
+        outputTokens: event.usage?.outputTokens,
+      },
+      model: event.model.modelId,
+      durationMs,
+      endedAt: addMs(stored.startedAt, durationMs),
+      llmProvider: event.model.provider,
+      llmOutputMessages:
+        options.recordOutputs === false || output === undefined
+          ? undefined
+          : [{ role: "assistant", content: output }],
+    });
   }
 
   return {
     onLanguageModelCallStart(event) {
-      modelCalls.set(event.callId, { event, startedAt: new Date() });
+      const trace = getTrace(options.trace);
+      if (!trace) return;
+      if (generationSpanIdsByCallId.has(event.callId)) {
+        modelCalls.set(event.callId, { event, startedAt: new Date() });
+        return;
+      }
+
+      const startedAt = new Date();
+      const name =
+        typeof options.generationName === "function"
+          ? options.generationName({
+              callId: event.callId,
+              provider: event.provider,
+              modelId: event.modelId,
+              usage: {},
+              content: [],
+              performance: {},
+            })
+          : (options.generationName ?? "vercel-ai-generation");
+      const handle = trace.startGeneration({
+        name,
+        input: options.recordInputs === false ? undefined : event.messages,
+        metadata: options.metadata,
+        model: event.modelId,
+        startedAt,
+        llmProvider: event.provider,
+        llmInputMessages:
+          options.recordInputs === false ? undefined : event.messages,
+        llmTools: event.tools,
+      });
+
+      modelCalls.set(event.callId, { event, startedAt, handle });
+      generationSpanIdsByCallId.set(event.callId, handle.id);
     },
 
     onLanguageModelCallEnd(event) {
-      const trace = getTrace(options.trace);
-      if (!trace) return;
-
       const stored = modelCalls.get(event.callId);
       modelCalls.delete(event.callId);
+      if (!stored?.handle) return;
 
-      const startedAt = stored?.startedAt ?? new Date();
-      const endedAt = new Date();
-      const name =
-        typeof options.generationName === "function"
-          ? options.generationName(event)
-          : (options.generationName ?? "vercel-ai-generation");
-
-      trace.recordGeneration({
-        name,
-        input:
-          options.recordInputs === false ? undefined : stored?.event.messages,
+      stored.handle.end({
         output:
           options.recordOutputs === false
             ? undefined
             : stringifyContent(event.content),
-        metadata: options.metadata,
-        model: event.modelId,
         usage: {
           inputTokens: event.usage.inputTokens,
           outputTokens: event.usage.outputTokens,
         },
-        startedAt,
-        endedAt,
+        model: event.modelId,
         durationMs: event.performance.responseTimeMs,
+        endedAt: addMs(stored.startedAt, event.performance.responseTimeMs),
         llmProvider: event.provider,
-        llmInputMessages:
-          options.recordInputs === false ? undefined : stored?.event.messages,
         llmOutputMessages:
           options.recordOutputs === false
             ? undefined
             : [{ role: "assistant", content: stringifyContent(event.content) }],
-        llmTools: stored?.event.tools,
       });
+    },
+
+    onToolExecutionStart(event) {
+      const trace = getTrace(options.trace);
+      if (!trace) return;
+
+      const parentId =
+        event.toolCall.toolCallId &&
+        generationSpanIdsByToolCallId.get(event.toolCall.toolCallId);
+      const fallbackParentId = event.callId
+        ? generationSpanIdsByCallId.get(event.callId)
+        : undefined;
+      const name =
+        typeof options.toolName === "function"
+          ? options.toolName({
+              ...event,
+              toolExecutionMs: undefined,
+              toolOutput: { type: "tool-result" },
+            })
+          : (options.toolName ?? event.toolCall.toolName);
+      const startedAt = new Date();
+      const handle = trace.startTool({
+        name,
+        parentId: parentId ?? fallbackParentId,
+        input:
+          options.recordInputs === false ? undefined : event.toolCall.input,
+        metadata: options.metadata,
+        startedAt,
+      });
+
+      if (event.toolCall.toolCallId) {
+        toolExecutions.set(event.toolCall.toolCallId, { handle, startedAt });
+      }
     },
 
     onToolExecutionEnd(event) {
@@ -369,13 +580,40 @@ export function vercelAI(
         typeof options.toolName === "function"
           ? options.toolName(event)
           : (options.toolName ?? event.toolCall.toolName);
+      const storedTool = event.toolCall.toolCallId
+        ? toolExecutions.get(event.toolCall.toolCallId)
+        : undefined;
+      if (event.toolCall.toolCallId) {
+        toolExecutions.delete(event.toolCall.toolCallId);
+      }
+
+      if (storedTool) {
+        storedTool.handle.end({
+          durationMs: event.toolExecutionMs,
+          endedAt: addMs(storedTool.startedAt, event.toolExecutionMs),
+          ...toolOutput(event, options.recordOutputs !== false),
+        });
+        return;
+      }
+
+      const endedAt = new Date();
+      const startedAt = subtractMs(endedAt, event.toolExecutionMs);
+      const parentId =
+        event.toolCall.toolCallId &&
+        generationSpanIdsByToolCallId.get(event.toolCall.toolCallId);
+      const fallbackParentId = event.callId
+        ? generationSpanIdsByCallId.get(event.callId)
+        : undefined;
 
       trace.recordTool({
         name,
+        parentId: parentId ?? fallbackParentId,
         input:
           options.recordInputs === false ? undefined : event.toolCall.input,
         metadata: options.metadata,
         durationMs: event.toolExecutionMs,
+        startedAt,
+        endedAt,
         ...toolOutput(event, options.recordOutputs !== false),
       });
     },
@@ -386,7 +624,15 @@ export function vercelAI(
     },
 
     onStepStart(event) {
+      if (isV7StepStart(event)) {
+        startV7Generation(event);
+        return;
+      }
       v6Steps.set(event.stepNumber, { event, startedAt: new Date() });
+    },
+
+    onStepEnd(event) {
+      endV7Generation(event);
     },
 
     onStepFinish(event) {
@@ -419,9 +665,13 @@ export function vercelAI(
         typeof options.toolName === "function"
           ? options.toolName(event)
           : (options.toolName ?? event.toolCall.toolName);
+      const parentId =
+        event.toolCall.toolCallId &&
+        generationSpanIdsByToolCallId.get(event.toolCall.toolCallId);
 
       trace.recordTool({
         name,
+        parentId: parentId ?? generationSpanIdsByCallId.get("v6-latest"),
         input:
           options.recordInputs === false ? undefined : event.toolCall.input,
         metadata: options.metadata,

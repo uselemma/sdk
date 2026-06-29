@@ -5,6 +5,7 @@ import json
 import pytest
 
 from uselemma_tracing.client import Lemma, active
+from uselemma_tracing.debug_mode import disable_debug_mode, enable_debug_mode
 
 PROJECT_ID = "10000000-0000-0000-0000-000000000001"
 
@@ -169,6 +170,90 @@ def test_lemma_trace_surfaces_ingest_failures():
 
     with pytest.raises(RuntimeError, match="failed to ingest trace"):
         lemma.trace("support-agent", lambda _trace: "ok")
+
+
+def test_debug_mode_logs_sanitized_span_summaries(capsys):
+    def transport(_url, _headers, _body):
+        return 201, "{}"
+
+    lemma = Lemma(api_key="key", project_id=PROJECT_ID, transport=transport)
+
+    def run(trace):
+        trace.record_tool(
+            name="search_docs",
+            input={"query": "secret query"},
+            output={"status": "secret status"},
+            duration_ms=25,
+        )
+        trace.record_generation(
+            name="draft-reply",
+            input="secret prompt",
+            output="secret answer",
+            model="gpt-test",
+            usage={"input_tokens": 12, "output_tokens": 8},
+            duration_ms=40,
+        )
+        live_output = capsys.readouterr().out
+        assert live_output.count("[LEMMA:client] span recorded") == 2
+        assert "[LEMMA:client] sending trace" not in live_output
+        assert "'name': 'search_docs'" in live_output
+        assert "'type': 'tool'" in live_output
+        assert "'duration_ms': 25" in live_output
+        assert "'name': 'draft-reply'" in live_output
+        assert "'type': 'generation'" in live_output
+        assert "'model': 'gpt-test'" in live_output
+        assert "'input_tokens': 12" in live_output
+        assert "'output_tokens': 8" in live_output
+        assert "secret query" not in live_output
+        assert "secret prompt" not in live_output
+        assert "secret answer" not in live_output
+        return "secret result"
+
+    enable_debug_mode()
+    try:
+        lemma.trace("support-agent", run, input="secret trace input")
+    finally:
+        disable_debug_mode()
+
+    output = capsys.readouterr().out
+    assert "[LEMMA:client] sending trace" in output
+    assert "'span_count': 2" in output
+    assert "secret result" not in output
+
+
+def test_debug_mode_logs_live_span_handles(capsys):
+    def transport(_url, _headers, _body):
+        return 201, "{}"
+
+    lemma = Lemma(api_key="key", project_id=PROJECT_ID, transport=transport)
+
+    def run(trace):
+        span = trace.start_tool(name="search_docs", input={"query": "secret query"})
+        started_output = capsys.readouterr().out
+        assert "[LEMMA:client] span started" in started_output
+        assert "'id':" in started_output
+        assert "'name': 'search_docs'" in started_output
+        assert "'type': 'tool'" in started_output
+        assert "'has_input': True" in started_output
+        assert "'has_output': False" in started_output
+        assert "secret query" not in started_output
+
+        span.end(output={"status": "secret status"}, duration_ms=25)
+        ended_output = capsys.readouterr().out
+        assert "[LEMMA:client] span ended" in ended_output
+        assert "'name': 'search_docs'" in ended_output
+        assert "'type': 'tool'" in ended_output
+        assert "'duration_ms': 25" in ended_output
+        assert "'has_input': True" in ended_output
+        assert "'has_output': True" in ended_output
+        assert "secret status" not in ended_output
+        return "ok"
+
+    enable_debug_mode()
+    try:
+        lemma.trace("support-agent", run)
+    finally:
+        disable_debug_mode()
 
 
 async def test_lemma_async_trace_posts_completed_trace():

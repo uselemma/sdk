@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Lemma, active } from "./client";
+import { disableDebugMode, enableDebugMode } from "./debug-mode";
 
 function jsonBody(call: unknown[]) {
   return JSON.parse(String((call[1] as RequestInit).body));
@@ -410,5 +411,146 @@ describe("Lemma", () => {
     await expect(
       lemma.trace("support-agent", async () => "ok"),
     ).rejects.toThrow("failed to ingest trace (503): nope");
+  });
+
+  it("debug mode logs sanitized span summaries as spans arrive", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      baseUrl: "https://api.example.test/",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    enableDebugMode();
+    try {
+      await lemma.trace(
+        { name: "support-agent", input: "secret trace input" },
+        async (trace) => {
+          trace.recordTool({
+            name: "search_docs",
+            input: { query: "secret query" },
+            output: { status: "secret status" },
+            durationMs: 25,
+          });
+          trace.recordGeneration({
+            name: "draft-reply",
+            input: "secret prompt",
+            output: "secret answer",
+            model: "gpt-test",
+            usage: { inputTokens: 12, outputTokens: 8 },
+            durationMs: 40,
+          });
+          const liveSpanCalls = spy.mock.calls.filter(
+            ([message]) => message === "[LEMMA:client] span recorded",
+          );
+          expect(liveSpanCalls).toHaveLength(2);
+          expect(liveSpanCalls[0]?.[1]).toMatchObject({
+            span: {
+              name: "search_docs",
+              type: "tool",
+              durationMs: 25,
+              hasInput: true,
+              hasOutput: true,
+              hasError: false,
+            },
+          });
+          expect(liveSpanCalls[1]?.[1]).toMatchObject({
+            span: {
+              name: "draft-reply",
+              type: "generation",
+              durationMs: 40,
+              model: "gpt-test",
+              inputTokens: 12,
+              outputTokens: 8,
+              hasInput: true,
+              hasOutput: true,
+              hasError: false,
+            },
+          });
+          expect(
+            spy.mock.calls.some(
+              ([message]) => message === "[LEMMA:client] sending trace",
+            ),
+          ).toBe(false);
+          return "secret result";
+        },
+      );
+
+      const sendingTraceCall = spy.mock.calls.find(
+        ([message]) => message === "[LEMMA:client] sending trace",
+      );
+      expect(sendingTraceCall?.[1]).toMatchObject({
+        name: "support-agent",
+        spanCount: 2,
+      });
+      const logged = JSON.stringify(spy.mock.calls);
+      expect(logged).not.toContain("secret query");
+      expect(logged).not.toContain("secret prompt");
+      expect(logged).not.toContain("secret answer");
+      expect(logged).not.toContain("secret result");
+    } finally {
+      disableDebugMode();
+      spy.mockRestore();
+    }
+  });
+
+  it("debug mode logs live span handles when they start and end", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      baseUrl: "https://api.example.test/",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    enableDebugMode();
+    try {
+      await lemma.trace("support-agent", async (trace) => {
+        const span = trace.startTool({
+          name: "search_docs",
+          input: { query: "secret query" },
+        });
+        expect(spy.mock.calls.at(-1)).toMatchObject([
+          "[LEMMA:client] span started",
+          {
+            span: {
+              id: span.id,
+              name: "search_docs",
+              type: "tool",
+              hasInput: true,
+              hasOutput: false,
+              hasError: false,
+            },
+          },
+        ]);
+
+        span.end({ output: { status: "secret status" }, durationMs: 25 });
+        expect(spy.mock.calls.at(-1)).toMatchObject([
+          "[LEMMA:client] span ended",
+          {
+            span: {
+              id: span.id,
+              name: "search_docs",
+              type: "tool",
+              durationMs: 25,
+              hasInput: true,
+              hasOutput: true,
+              hasError: false,
+            },
+          },
+        ]);
+        return "ok";
+      });
+
+      const logged = JSON.stringify(spy.mock.calls);
+      expect(logged).not.toContain("secret query");
+      expect(logged).not.toContain("secret status");
+    } finally {
+      disableDebugMode();
+      spy.mockRestore();
+    }
   });
 });

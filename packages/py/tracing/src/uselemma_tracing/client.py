@@ -60,6 +60,28 @@ def _duration_ms(
     return max(0, int((end - start).total_seconds() * 1000))
 
 
+def _debug_span_summary(
+    span: dict[str, Any], index: int | None = None
+) -> dict[str, Any]:
+    return _compact(
+        {
+            "index": index,
+            "id": span.get("id"),
+            "parent_id": span.get("parent_id"),
+            "name": span.get("name"),
+            "type": span.get("type"),
+            "status": span.get("status"),
+            "duration_ms": span.get("duration_ms"),
+            "model": span.get("model"),
+            "input_tokens": (span.get("usage") or {}).get("input_tokens"),
+            "output_tokens": (span.get("usage") or {}).get("output_tokens"),
+            "has_input": "input" in span,
+            "has_output": "output" in span,
+            "has_error": bool(span.get("error")),
+        }
+    )
+
+
 def _serialize_attribute(value: Any) -> Any:
     if value is None or isinstance(value, str | int | float | bool):
         return value
@@ -240,6 +262,7 @@ class SpanHandle:
             ended_at=_now(),
             duration_ms=duration_ms,
             type=self.type,
+            _debug_event="span ended",
         )
 
 
@@ -261,6 +284,14 @@ class TraceContext:
 
     def fail(self, error: Any) -> None:
         self.error = _error_message(error)
+
+    def _debug_span(self, event: str, span: dict[str, Any]) -> None:
+        _lemma_debug(
+            "client",
+            event,
+            trace_name=self.name,
+            span=_debug_span_summary(span),
+        )
 
     def span(
         self,
@@ -287,39 +318,40 @@ class TraceContext:
         id: str | None = None,
         parent_id: str | None = None,
         type: SpanType = "span",
+        _debug_event: str = "span recorded",
     ) -> None:
         started = started_at or _now()
         ended = ended_at or _now()
-        self.spans.append(
-            _compact(
-                {
-                    "id": id,
-                    "parent_id": parent_id,
-                    "name": name,
-                    "type": type,
-                    "input": input,
-                    "output": output,
-                    "metadata": metadata,
-                    "attributes": _span_attributes(
-                        attributes,
-                        input_mime_type=input_mime_type,
-                        output_mime_type=output_mime_type,
-                        retrieval_documents=retrieval_documents,
-                        embedding_model_name=embedding_model_name,
-                        embedding_invocation_parameters=embedding_invocation_parameters,
-                        embedding_embeddings=embedding_embeddings,
-                        reranker_model_name=reranker_model_name,
-                        reranker_input_documents=reranker_input_documents,
-                        reranker_output_documents=reranker_output_documents,
-                    ),
-                    "started_at": _iso(started),
-                    "ended_at": _iso(ended),
-                    "duration_ms": duration_ms,
-                    "status": status or ("ERROR" if error else None),
-                    "error": _error_message(error),
-                }
-            )
+        span = _compact(
+            {
+                "id": id,
+                "parent_id": parent_id,
+                "name": name,
+                "type": type,
+                "input": input,
+                "output": output,
+                "metadata": metadata,
+                "attributes": _span_attributes(
+                    attributes,
+                    input_mime_type=input_mime_type,
+                    output_mime_type=output_mime_type,
+                    retrieval_documents=retrieval_documents,
+                    embedding_model_name=embedding_model_name,
+                    embedding_invocation_parameters=embedding_invocation_parameters,
+                    embedding_embeddings=embedding_embeddings,
+                    reranker_model_name=reranker_model_name,
+                    reranker_input_documents=reranker_input_documents,
+                    reranker_output_documents=reranker_output_documents,
+                ),
+                "started_at": _iso(started),
+                "ended_at": _iso(ended),
+                "duration_ms": duration_ms,
+                "status": status or ("ERROR" if error else None),
+                "error": _error_message(error),
+            }
         )
+        self.spans.append(span)
+        self._debug_span(_debug_event, span)
 
     record_span = span
 
@@ -353,44 +385,44 @@ class TraceContext:
         error: Any = None,
     ) -> None:
         now = _now()
-        self.spans.append(
-            _compact(
-                {
-                    "name": name,
-                    "type": "generation",
-                    "input": input,
-                    "output": output,
-                    "model": model,
-                    "usage": usage,
-                    "metadata": metadata,
-                    "attributes": _span_attributes(
-                        attributes,
-                        model=model,
-                        usage=usage,
-                        input_mime_type=input_mime_type,
-                        output_mime_type=output_mime_type,
-                        llm_model_name=llm_model_name,
-                        llm_provider=llm_provider,
-                        llm_system=llm_system,
-                        llm_invocation_parameters=llm_invocation_parameters,
-                        llm_input_messages=llm_input_messages,
-                        llm_output_messages=llm_output_messages,
-                        llm_tools=llm_tools,
-                        llm_token_count_prompt=llm_token_count_prompt,
-                        llm_token_count_completion=llm_token_count_completion,
-                        llm_token_count_total=llm_token_count_total,
-                        llm_prompt_template=llm_prompt_template,
-                        llm_prompt_template_variables=llm_prompt_template_variables,
-                        llm_prompt_template_version=llm_prompt_template_version,
-                    ),
-                    "duration_ms": duration_ms,
-                    "status": status or ("ERROR" if error else None),
-                    "error": _error_message(error),
-                    "started_at": _iso(now),
-                    "ended_at": _iso(now),
-                }
-            )
+        span = _compact(
+            {
+                "name": name,
+                "type": "generation",
+                "input": input,
+                "output": output,
+                "model": model,
+                "usage": usage,
+                "metadata": metadata,
+                "attributes": _span_attributes(
+                    attributes,
+                    model=model,
+                    usage=usage,
+                    input_mime_type=input_mime_type,
+                    output_mime_type=output_mime_type,
+                    llm_model_name=llm_model_name,
+                    llm_provider=llm_provider,
+                    llm_system=llm_system,
+                    llm_invocation_parameters=llm_invocation_parameters,
+                    llm_input_messages=llm_input_messages,
+                    llm_output_messages=llm_output_messages,
+                    llm_tools=llm_tools,
+                    llm_token_count_prompt=llm_token_count_prompt,
+                    llm_token_count_completion=llm_token_count_completion,
+                    llm_token_count_total=llm_token_count_total,
+                    llm_prompt_template=llm_prompt_template,
+                    llm_prompt_template_variables=llm_prompt_template_variables,
+                    llm_prompt_template_version=llm_prompt_template_version,
+                ),
+                "duration_ms": duration_ms,
+                "status": status or ("ERROR" if error else None),
+                "error": _error_message(error),
+                "started_at": _iso(now),
+                "ended_at": _iso(now),
+            }
         )
+        self.spans.append(span)
+        self._debug_span("span recorded", span)
 
     record_generation = generation
 
@@ -411,29 +443,29 @@ class TraceContext:
         error: Any = None,
     ) -> None:
         now = _now()
-        self.spans.append(
-            _compact(
-                {
-                    "name": name,
-                    "type": "tool",
-                    "input": input,
-                    "output": output,
-                    "metadata": metadata,
-                    "attributes": _span_attributes(
-                        attributes,
-                        input_mime_type=input_mime_type,
-                        output_mime_type=output_mime_type,
-                        tool_description=tool_description,
-                        tool_parameters=tool_parameters,
-                    ),
-                    "duration_ms": duration_ms,
-                    "status": status or ("ERROR" if error else None),
-                    "error": _error_message(error),
-                    "started_at": _iso(now),
-                    "ended_at": _iso(now),
-                }
-            )
+        span = _compact(
+            {
+                "name": name,
+                "type": "tool",
+                "input": input,
+                "output": output,
+                "metadata": metadata,
+                "attributes": _span_attributes(
+                    attributes,
+                    input_mime_type=input_mime_type,
+                    output_mime_type=output_mime_type,
+                    tool_description=tool_description,
+                    tool_parameters=tool_parameters,
+                ),
+                "duration_ms": duration_ms,
+                "status": status or ("ERROR" if error else None),
+                "error": _error_message(error),
+                "started_at": _iso(now),
+                "ended_at": _iso(now),
+            }
         )
+        self.spans.append(span)
+        self._debug_span("span recorded", span)
 
     record_tool = tool
 
@@ -444,7 +476,19 @@ class TraceContext:
         input: Any = None,
         metadata: dict[str, Any] | None = None,
     ) -> SpanHandle:
-        return SpanHandle(trace=self, name=name, input=input, metadata=metadata)
+        handle = SpanHandle(trace=self, name=name, input=input, metadata=metadata)
+        self._debug_span(
+            "span started",
+            {
+                "id": handle.id,
+                "name": name,
+                "type": "span",
+                "input": input,
+                "metadata": metadata,
+                "started_at": _iso(handle.started_at),
+            },
+        )
+        return handle
 
     def start_generation(
         self,
@@ -453,13 +497,25 @@ class TraceContext:
         input: Any = None,
         metadata: dict[str, Any] | None = None,
     ) -> SpanHandle:
-        return SpanHandle(
+        handle = SpanHandle(
             trace=self,
             name=name,
             input=input,
             metadata=metadata,
             type="generation",
         )
+        self._debug_span(
+            "span started",
+            {
+                "id": handle.id,
+                "name": name,
+                "type": "generation",
+                "input": input,
+                "metadata": metadata,
+                "started_at": _iso(handle.started_at),
+            },
+        )
+        return handle
 
     def start_tool(
         self,
@@ -468,13 +524,25 @@ class TraceContext:
         input: Any = None,
         metadata: dict[str, Any] | None = None,
     ) -> SpanHandle:
-        return SpanHandle(
+        handle = SpanHandle(
             trace=self,
             name=name,
             input=input,
             metadata=metadata,
             type="tool",
         )
+        self._debug_span(
+            "span started",
+            {
+                "id": handle.id,
+                "name": name,
+                "type": "tool",
+                "input": input,
+                "metadata": metadata,
+                "started_at": _iso(handle.started_at),
+            },
+        )
+        return handle
 
     def payload(
         self, project_id: str, started_at: datetime, ended_at: datetime
