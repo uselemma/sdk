@@ -110,9 +110,6 @@ describe("Lemma", () => {
       span.end({
         output: ["doc"],
         durationMs: 250,
-        retrievalDocuments: [
-          { id: "doc-1", content: "shipping policy", score: 0.9 },
-        ],
       });
       return "ok";
     });
@@ -124,11 +121,6 @@ describe("Lemma", () => {
       input: "q",
       output: ["doc"],
       duration_ms: 250,
-      attributes: {
-        "retrieval.documents.0.document.id": "doc-1",
-        "retrieval.documents.0.document.content": "shipping policy",
-        "retrieval.documents.0.document.score": 0.9,
-      },
     });
     expect(body.trace.spans[0].id).toEqual(expect.any(String));
   });

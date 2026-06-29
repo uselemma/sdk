@@ -80,7 +80,7 @@ trace.recordGeneration({
 });
 ```
 
-Pass contract fields as native props such as `llmInputMessages`, `llmInvocationParameters`, `toolParameters`, and `retrievalDocuments`. Use `attributes` only when you need to send raw span attributes that do not yet have a native SDK prop.
+Pass contract fields as native props such as `llmInputMessages`, `llmInvocationParameters`, and `toolParameters`. Use `attributes` only when you need to send raw span attributes that do not yet have a native SDK prop.
 
 ## Live Spans
 
@@ -128,11 +128,6 @@ span.recordTool({
 });
 span.end({
   output: { count: docs.length },
-  retrievalDocuments: docs.map((doc) => ({
-    id: doc.id,
-    content: doc.text,
-    score: doc.score,
-  })),
 });
 
 await trace.end({ output: "final answer" });
@@ -217,8 +212,7 @@ sending prompts, tool inputs, tool outputs, or model output text.
 
 Pass `langChain()` as a LangChain callback handler. The handler creates one
 Lemma trace for the root run, records LLM calls as generations, tools as tool
-spans, retrievers as spans with retrieval documents, and nested chains as child
-spans.
+spans, retrievers as spans, and nested chains as child spans.
 
 ```typescript
 import { ChatOpenAI } from "@langchain/openai";
@@ -245,7 +239,7 @@ const result = await graph.invoke(
 
 Use `langChain({ recordInputs: false, recordOutputs: false })` or
 `langGraph({ recordInputs: false, recordOutputs: false })` to avoid sending
-prompts, tool inputs, tool outputs, retrieved documents, or generated text.
+prompts, tool inputs, tool outputs, or generated text.
 
 When a helper only has IDs, use the client-level methods:
 
@@ -323,7 +317,6 @@ Use native SDK props for OpenInference-style fields:
   `llmInvocationParameters`, `llmInputMessages`, `llmOutputMessages`,
   `llmTools`, token counts, and prompt template fields
 - tools: `toolName`, `toolDescription`, `toolParameters`
-- retrieval: `retrievalDocuments`
 - embeddings and rerankers: `embeddingModelName`,
   `embeddingInvocationParameters`, `embeddingEmbeddings`,
   `rerankerModelName`, `rerankerInputDocuments`, `rerankerOutputDocuments`

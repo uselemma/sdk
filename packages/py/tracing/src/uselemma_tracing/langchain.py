@@ -424,7 +424,6 @@ class LemmaLangChainCallbackHandler:
         run = self._runs.pop(str(run_id), None)
         run and run.handle and run.handle.end(
             output=documents if self.record_outputs else None,
-            retrieval_documents=documents if self.record_outputs else None,
         )
 
     def on_retriever_error(

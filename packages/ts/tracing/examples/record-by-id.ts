@@ -36,11 +36,6 @@ export async function runDetachedHelpers(userMessage: string) {
 
   retrieve.end({
     output: { count: docs.length },
-    retrievalDocuments: docs.map((doc) => ({
-      id: doc.id,
-      content: doc.text,
-      score: doc.score,
-    })),
   });
 
   await trace.end({ output: `Found ${docs.length} document(s).` });

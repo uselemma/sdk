@@ -376,8 +376,6 @@ export class LemmaLangChainCallbackHandler {
     const run = this.runs.get(runId);
     run?.handle?.end({
       output: this.options.recordOutputs === false ? undefined : documents,
-      retrievalDocuments:
-        this.options.recordOutputs === false ? undefined : documents,
     });
     this.runs.delete(runId);
   }

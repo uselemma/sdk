@@ -72,7 +72,6 @@ export type SpanOptions = {
   llmPromptTemplateVersion?: string;
   toolDescription?: string;
   toolParameters?: unknown;
-  retrievalDocuments?: unknown[];
   embeddingModelName?: string;
   embeddingInvocationParameters?: unknown;
   embeddingEmbeddings?: unknown;
@@ -348,9 +347,6 @@ function contractAttributes(options: SpanOptions): Record<string, unknown> {
   });
   options.llmOutputMessages?.forEach((message, index) => {
     flattenMessage(attributes, `llm.output_messages.${index}`, message);
-  });
-  options.retrievalDocuments?.forEach((document, index) => {
-    flattenDocument(attributes, `retrieval.documents.${index}`, document);
   });
   options.rerankerInputDocuments?.forEach((document, index) => {
     flattenDocument(attributes, `reranker.input_documents.${index}`, document);

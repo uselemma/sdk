@@ -40,11 +40,6 @@ export async function runWithHandles(userMessage: string) {
   });
   retrieval.end({
     output: { count: docs.length },
-    retrievalDocuments: docs.map((doc) => ({
-      id: doc.id,
-      content: doc.text,
-      score: doc.score,
-    })),
   });
 
   const response = await callModel(userMessage, docs);

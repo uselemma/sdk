@@ -154,7 +154,6 @@ def _span_attributes(
     llm_prompt_template_version: str | None = None,
     tool_description: str | None = None,
     tool_parameters: Any = None,
-    retrieval_documents: list[Any] | None = None,
     embedding_model_name: str | None = None,
     embedding_invocation_parameters: Any = None,
     embedding_embeddings: Any = None,
@@ -212,8 +211,6 @@ def _span_attributes(
         _flatten_message(attrs, f"llm.input_messages.{index}", message)
     for index, message in enumerate(llm_output_messages or []):
         _flatten_message(attrs, f"llm.output_messages.{index}", message)
-    for index, document in enumerate(retrieval_documents or []):
-        _flatten_document(attrs, f"retrieval.documents.{index}", document)
     for index, document in enumerate(reranker_input_documents or []):
         _flatten_document(attrs, f"reranker.input_documents.{index}", document)
     for index, document in enumerate(reranker_output_documents or []):
@@ -260,7 +257,6 @@ class SpanHandle:
         llm_output_messages: list[Any] | None = None,
         input_mime_type: str | None = None,
         output_mime_type: str | None = None,
-        retrieval_documents: list[Any] | None = None,
         embedding_model_name: str | None = None,
         embedding_invocation_parameters: Any = None,
         embedding_embeddings: Any = None,
@@ -291,7 +287,6 @@ class SpanHandle:
             llm_input_messages=self.llm_input_messages,
             llm_output_messages=llm_output_messages,
             llm_tools=self.llm_tools,
-            retrieval_documents=retrieval_documents,
             embedding_model_name=embedding_model_name,
             embedding_invocation_parameters=embedding_invocation_parameters,
             embedding_embeddings=embedding_embeddings,
@@ -361,7 +356,6 @@ class TraceContext:
         llm_input_messages: list[Any] | None = None,
         llm_output_messages: list[Any] | None = None,
         llm_tools: Any = None,
-        retrieval_documents: list[Any] | None = None,
         embedding_model_name: str | None = None,
         embedding_invocation_parameters: Any = None,
         embedding_embeddings: Any = None,
@@ -394,7 +388,6 @@ class TraceContext:
             llm_input_messages=llm_input_messages,
             llm_output_messages=llm_output_messages,
             llm_tools=llm_tools,
-            retrieval_documents=retrieval_documents,
             embedding_model_name=embedding_model_name,
             embedding_invocation_parameters=embedding_invocation_parameters,
             embedding_embeddings=embedding_embeddings,
@@ -431,7 +424,6 @@ class TraceContext:
         llm_input_messages: list[Any] | None = None,
         llm_output_messages: list[Any] | None = None,
         llm_tools: Any = None,
-        retrieval_documents: list[Any] | None = None,
         embedding_model_name: str | None = None,
         embedding_invocation_parameters: Any = None,
         embedding_embeddings: Any = None,
@@ -469,7 +461,6 @@ class TraceContext:
                     llm_input_messages=llm_input_messages,
                     llm_output_messages=llm_output_messages,
                     llm_tools=llm_tools,
-                    retrieval_documents=retrieval_documents,
                     embedding_model_name=embedding_model_name,
                     embedding_invocation_parameters=embedding_invocation_parameters,
                     embedding_embeddings=embedding_embeddings,

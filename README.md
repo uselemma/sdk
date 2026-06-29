@@ -9,8 +9,8 @@ directly to Lemma over HTTP.
 
 | Package                                    | Language             | Current version | Path                  |
 | ------------------------------------------ | -------------------- | --------------- | --------------------- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `5.0.0`         | `packages/ts/tracing` |
-| [`uselemma-tracing`](packages/py/tracing)  | Python               | `5.0.0`         | `packages/py/tracing` |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `6.0.0`         | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing)  | Python               | `6.0.0`         | `packages/py/tracing` |
 
 ## Install
 
@@ -309,8 +309,8 @@ result = graph.invoke(
 ```
 
 The integration creates one Lemma trace for the root chain/graph run, records
-LLM calls as generations, tools as tool spans, retrievers as spans with
-retrieval documents, and nested chain/graph nodes as child spans.
+LLM calls as generations, tools as tool spans, retrievers as spans, and nested
+chain/graph nodes as child spans.
 
 ## Python Quick Start
 
@@ -374,9 +374,8 @@ Use first-class SDK options for common trace-contract fields:
   template fields
 - tool fields: `toolName` / `tool_name`, `toolDescription` /
   `tool_description`, `toolParameters` / `tool_parameters`
-- retrieval, embedding, and reranker fields:
-  `retrievalDocuments` / `retrieval_documents`, `embeddingModelName` /
-  `embedding_model_name`, `embeddingInvocationParameters` /
+- embedding and reranker fields:
+  `embeddingModelName` / `embedding_model_name`, `embeddingInvocationParameters` /
   `embedding_invocation_parameters`, `embeddingEmbeddings` /
   `embedding_embeddings`, `rerankerModelName` / `reranker_model_name`,
   `rerankerInputDocuments` / `reranker_input_documents`,

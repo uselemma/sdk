@@ -59,13 +59,7 @@ def run(trace):
     span = trace.start_span(name="retrieve-context", input=query)
     try:
         docs = retrieve(query)
-        span.end(
-            output=docs,
-            retrieval_documents=[
-                {"id": doc.id, "content": doc.text, "score": doc.score}
-                for doc in docs
-            ],
-        )
+        span.end(output={"count": len(docs)})
         return docs
     except Exception as error:
         span.end(status="ERROR", error=error)
@@ -179,12 +173,12 @@ result = graph.invoke(
 ```
 
 The handler creates one Lemma trace for the root chain/graph run, records LLM
-calls as generations, tools as tool spans, retrievers as spans with retrieval
-documents, and nested chains or graph nodes as child spans.
+calls as generations, tools as tool spans, retrievers as spans, and nested
+chains or graph nodes as child spans.
 
 Use `langchain(record_inputs=False, record_outputs=False)` or
 `langgraph(record_inputs=False, record_outputs=False)` to avoid sending prompts,
-tool inputs, tool outputs, retrieved documents, or generated text.
+tool inputs, tool outputs, or generated text.
 
 ## Supported Contract Fields
 
@@ -194,7 +188,6 @@ Use native SDK keyword arguments for OpenInference-style fields:
   `llm_invocation_parameters`, `llm_input_messages`, `llm_output_messages`,
   `llm_tools`, token counts, and prompt template fields
 - tools: `tool_description`, `tool_parameters`
-- retrieval: `retrieval_documents`
 - embeddings and rerankers: `embedding_model_name`,
   `embedding_invocation_parameters`, `embedding_embeddings`,
   `reranker_model_name`, `reranker_input_documents`,
