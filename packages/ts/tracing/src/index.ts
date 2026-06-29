@@ -23,6 +23,15 @@ export {
   lemmaDebug,
 } from "./debug-mode";
 export {
+  LangChainCallbackHandler,
+  LemmaLangChainCallbackHandler,
+  langChain,
+  langGraph,
+  type LangChainIntegrationOptions,
+  type LemmaLangChainIntegrationOptions,
+  type LemmaLangGraphIntegrationOptions,
+} from "./langchain";
+export {
   openAIAgents,
   type OpenAIAgentsIntegrationOptions,
   type OpenAIAgentsSpan,

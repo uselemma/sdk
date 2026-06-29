@@ -14,6 +14,7 @@ from .openai_agents import (
     instrument_openai_agents,
     openai_agents,
 )
+from .langchain import LemmaLangChainCallbackHandler, langchain, langgraph
 
 __all__ = [
     "Lemma",
@@ -30,4 +31,7 @@ __all__ = [
     "LemmaOpenAIAgentsProcessor",
     "openai_agents",
     "instrument_openai_agents",
+    "LemmaLangChainCallbackHandler",
+    "langchain",
+    "langgraph",
 ]

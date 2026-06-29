@@ -9,8 +9,8 @@ directly to Lemma over HTTP.
 
 | Package                                    | Language             | Current version | Path                  |
 | ------------------------------------------ | -------------------- | --------------- | --------------------- |
-| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.2.0`         | `packages/ts/tracing` |
-| [`uselemma-tracing`](packages/py/tracing)  | Python               | `4.1.0`         | `packages/py/tracing` |
+| [`@uselemma/tracing`](packages/ts/tracing) | TypeScript / Node.js | `4.3.0`         | `packages/ts/tracing` |
+| [`uselemma-tracing`](packages/py/tracing)  | Python               | `4.2.0`         | `packages/py/tracing` |
 
 ## Install
 
@@ -253,6 +253,64 @@ or agent span that called them.
 Use `openAIAgents({ recordInputs: false, recordOutputs: false })` in
 TypeScript or `openai_agents(record_inputs=False, record_outputs=False)` in
 Python to avoid sending prompts, tool inputs, tool outputs, and generated text.
+
+## LangChain and LangGraph
+
+Both SDKs expose LangChain callback handlers. LangGraph uses the same callback
+system, so `langGraph()` / `langgraph()` is an alias with a LangGraph-flavored
+default trace name.
+
+TypeScript:
+
+```typescript
+import { ChatOpenAI } from "@langchain/openai";
+import { langChain } from "@uselemma/tracing";
+
+const model = new ChatOpenAI({
+  model: "gpt-4o",
+  callbacks: [langChain({ agentName: "support-agent" })],
+});
+
+const response = await model.invoke(userMessage);
+```
+
+Python:
+
+```bash
+pip install "uselemma-tracing[langchain]" langchain-openai
+```
+
+```python
+from langchain_openai import ChatOpenAI
+from uselemma_tracing import langchain
+
+model = ChatOpenAI(
+    model="gpt-4o",
+    callbacks=[langchain(agent_name="support-agent")],
+)
+
+response = model.invoke(user_message)
+```
+
+LangGraph:
+
+```typescript
+const result = await graph.invoke(
+  { input: userMessage },
+  { callbacks: [langGraph({ agentName: "support-graph" })] },
+);
+```
+
+```python
+result = graph.invoke(
+    {"input": user_message},
+    {"callbacks": [langgraph(agent_name="support-graph")]},
+)
+```
+
+The integration creates one Lemma trace for the root chain/graph run, records
+LLM calls as generations, tools as tool spans, retrievers as spans with
+retrieval documents, and nested chain/graph nodes as child spans.
 
 ## Python Quick Start
 

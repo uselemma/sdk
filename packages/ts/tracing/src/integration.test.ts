@@ -5,7 +5,7 @@ import {
 } from "node:http";
 import { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { Lemma, openAIAgents, vercelAI } from "./index";
+import { Lemma, langChain, openAIAgents, vercelAI } from "./index";
 
 type CapturedRequest = {
   method: string | undefined;
@@ -168,7 +168,32 @@ describe("HTTP tracing integration", () => {
       name: "openai-agents-trace",
     });
 
-    expect(ingest.requests).toHaveLength(5);
+    const langChainHandler = langChain({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      baseUrl: ingest.baseUrl,
+    });
+    langChainHandler.handleChainStart(
+      { name: "langchain-agent" },
+      { input: "hi" },
+      "chain-1",
+    );
+    langChainHandler.handleLLMStart(
+      { name: "ChatOpenAI", kwargs: { model: "gpt-4o" } },
+      ["hi"],
+      "llm-1",
+      "chain-1",
+    );
+    langChainHandler.handleLLMEnd(
+      {
+        generations: [[{ text: "hello" }]],
+        llmOutput: { tokenUsage: { promptTokens: 1, completionTokens: 1 } },
+      },
+      "llm-1",
+    );
+    await langChainHandler.handleChainEnd({ output: "hello" }, "chain-1");
+
+    expect(ingest.requests).toHaveLength(6);
     for (const request of ingest.requests) {
       expect(request.method).toBe("POST");
       expect(request.url).toBe("/traces/ingest");
@@ -225,5 +250,18 @@ describe("HTTP tracing integration", () => {
         output: { ok: true },
       },
     ]);
+
+    expect(ingest.requests[5].body.trace).toMatchObject({
+      name: "langchain-agent",
+      input: { input: "hi" },
+      output: { output: "hello" },
+    });
+    expect(ingest.requests[5].body.trace.spans[0]).toMatchObject({
+      name: "ChatOpenAI",
+      type: "generation",
+      model: "gpt-4o",
+      output: "hello",
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
   });
 });

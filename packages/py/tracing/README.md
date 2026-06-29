@@ -142,6 +142,50 @@ Use `openai_agents(record_inputs=False, record_outputs=False)` when you need a
 processor that avoids sending prompts, tool inputs, tool outputs, and generated
 text.
 
+## LangChain and LangGraph
+
+Install the optional integration dependency and pass `langchain()` as a callback
+handler:
+
+```bash
+pip install "uselemma-tracing[langchain]" langchain-openai
+```
+
+```python
+from langchain_openai import ChatOpenAI
+from uselemma_tracing import langchain
+
+model = ChatOpenAI(
+    model="gpt-4o",
+    callbacks=[langchain(agent_name="support-agent")],
+)
+
+response = model.invoke(user_message)
+```
+
+LangGraph uses LangChain callbacks too:
+
+```bash
+pip install "uselemma-tracing[langgraph]"
+```
+
+```python
+from uselemma_tracing import langgraph
+
+result = graph.invoke(
+    {"input": user_message},
+    {"callbacks": [langgraph(agent_name="support-graph")]},
+)
+```
+
+The handler creates one Lemma trace for the root chain/graph run, records LLM
+calls as generations, tools as tool spans, retrievers as spans with retrieval
+documents, and nested chains or graph nodes as child spans.
+
+Use `langchain(record_inputs=False, record_outputs=False)` or
+`langgraph(record_inputs=False, record_outputs=False)` to avoid sending prompts,
+tool inputs, tool outputs, retrieved documents, or generated text.
+
 ## Supported Contract Fields
 
 Use native SDK keyword arguments for OpenInference-style fields:

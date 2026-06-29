@@ -213,6 +213,40 @@ enableDebugMode();
 Use `openAIAgents({ recordInputs: false, recordOutputs: false })` to avoid
 sending prompts, tool inputs, tool outputs, or model output text.
 
+## LangChain and LangGraph
+
+Pass `langChain()` as a LangChain callback handler. The handler creates one
+Lemma trace for the root run, records LLM calls as generations, tools as tool
+spans, retrievers as spans with retrieval documents, and nested chains as child
+spans.
+
+```typescript
+import { ChatOpenAI } from "@langchain/openai";
+import { langChain } from "@uselemma/tracing";
+
+const model = new ChatOpenAI({
+  model: "gpt-4o",
+  callbacks: [langChain({ agentName: "support-agent" })],
+});
+
+const response = await model.invoke(userMessage);
+```
+
+LangGraph uses LangChain callbacks too:
+
+```typescript
+import { langGraph } from "@uselemma/tracing";
+
+const result = await graph.invoke(
+  { input: userMessage },
+  { callbacks: [langGraph({ agentName: "support-graph" })] },
+);
+```
+
+Use `langChain({ recordInputs: false, recordOutputs: false })` or
+`langGraph({ recordInputs: false, recordOutputs: false })` to avoid sending
+prompts, tool inputs, tool outputs, retrieved documents, or generated text.
+
 When a helper only has IDs, use the client-level methods:
 
 ```typescript
@@ -304,7 +338,8 @@ Use `attributes` for raw attributes that do not yet have a native SDK prop.
 ## Examples
 
 See [`examples/`](./examples) for complete callback tracing, trace handle,
-record-by-ID, Vercel AI SDK v6/v7, and OpenAI Agents SDK examples.
+record-by-ID, Vercel AI SDK v6/v7, OpenAI Agents SDK, LangChain, and LangGraph
+examples.
 
 ## License
 
