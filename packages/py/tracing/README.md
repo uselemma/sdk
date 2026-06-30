@@ -91,6 +91,37 @@ response = call_model(messages)
 generation.end(output=response.text)
 ```
 
+## Sending a Trace You Built Yourself
+
+`trace()` assumes the client owns the trace lifecycle within a single process.
+When the producer lives elsewhere — a cross-process buffer, a queue worker, a
+batch backfill — build a `TraceContext` yourself and deliver it with `ingest()`:
+
+```python
+from uselemma_tracing import Lemma, TraceContext
+
+lemma = Lemma()
+
+context = TraceContext(
+    id=turn_id,  # stable id ties batches to one trace
+    name=prompt,
+    input=prompt,
+    thread_id=conversation_id,
+)
+context.record_tool(name="search_docs", input=query, output=docs, duration_ms=25)
+context.record_generation(name="answer", model="gpt-4o", output=final_answer)
+context.output(final_answer)
+
+lemma.ingest(context, started_at=started_at)
+```
+
+`ingest()` is a single POST. Spans merge into the trace by id when `replace` is
+`False` (the default), so you can send a trace incrementally across several
+calls under one stable id and let the server reconcile them; pass `replace=True`
+to overwrite the trace wholesale. It raises on a non-2xx response and never
+mutates the trace's status, so a failed send can be retried as-is without
+fabricating an error.
+
 ## OpenAI Agents SDK
 
 Install the OpenAI Agents extra and register the Lemma processor:

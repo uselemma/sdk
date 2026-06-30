@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
-from uselemma_tracing.client import Lemma
+from uselemma_tracing.client import Lemma, TraceContext
 from uselemma_tracing.debug_mode import disable_debug_mode, enable_debug_mode
 
 PROJECT_ID = "10000000-0000-0000-0000-000000000001"
@@ -163,6 +164,116 @@ def test_lemma_trace_surfaces_ingest_failures():
 
     with pytest.raises(RuntimeError, match="failed to ingest trace"):
         lemma.trace("support-agent", lambda _trace: "ok")
+
+
+def test_ingest_sends_a_self_built_trace_once_merging_by_default():
+    calls = []
+
+    def transport(url, headers, body):
+        calls.append((url, headers, json.loads(body.decode())))
+        return 201, "{}"
+
+    lemma = Lemma(
+        api_key="key",
+        project_id=PROJECT_ID,
+        base_url="https://api.example.test",
+        transport=transport,
+    )
+
+    started_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    context = TraceContext(
+        id="trace-1",
+        name="cursor-agent-turn",
+        input="do the thing",
+        thread_id="conv-1",
+    )
+    context.record_tool(name="search_docs", duration_ms=25)
+    context.output("done")
+
+    lemma.ingest(context, started_at=started_at)
+
+    assert len(calls) == 1
+    url, headers, body = calls[0]
+    assert url == "https://api.example.test/traces/ingest"
+    assert headers["Authorization"] == "Bearer key"
+    assert body["replace"] is False
+    assert body["project_id"] == PROJECT_ID
+    assert body["trace"]["id"] == "trace-1"
+    assert body["trace"]["name"] == "cursor-agent-turn"
+    assert body["trace"]["input"] == "do the thing"
+    assert body["trace"]["thread_id"] == "conv-1"
+    assert body["trace"]["output"] == "done"
+    assert body["trace"]["started_at"] == "2026-01-01T00:00:00Z"
+    assert body["trace"]["spans"][0]["name"] == "search_docs"
+    assert body["trace"]["spans"][0]["type"] == "tool"
+
+
+def test_ingest_replaces_the_trace_when_asked():
+    calls = []
+
+    def transport(_url, _headers, body):
+        calls.append(json.loads(body.decode()))
+        return 201, "{}"
+
+    lemma = Lemma(api_key="key", project_id=PROJECT_ID, transport=transport)
+
+    context = TraceContext(id="trace-1", name="t")
+    lemma.ingest(context, started_at=_now_utc(), replace=True)
+
+    assert calls[0]["replace"] is True
+
+
+def test_ingest_merges_incrementally_across_calls_under_one_stable_id():
+    calls = []
+
+    def transport(_url, _headers, body):
+        calls.append(json.loads(body.decode()))
+        return 201, "{}"
+
+    lemma = Lemma(api_key="key", project_id=PROJECT_ID, transport=transport)
+
+    started_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    first = TraceContext(id="trace-1", name="turn")
+    first.record_generation(name="draft", model="gpt-4o")
+    lemma.ingest(first, started_at=started_at)
+
+    second = TraceContext(id="trace-1", name="turn")
+    second.record_tool(name="lookup")
+    lemma.ingest(second, started_at=started_at)
+
+    a, b = calls
+    assert a["replace"] is False
+    assert b["replace"] is False
+    assert a["trace"]["id"] == "trace-1"
+    assert b["trace"]["id"] == "trace-1"
+    assert a["trace"]["started_at"] == b["trace"]["started_at"]
+    assert a["trace"]["spans"][0]["name"] == "draft"
+    assert a["trace"]["spans"][0]["type"] == "generation"
+    assert b["trace"]["spans"][0]["name"] == "lookup"
+    assert b["trace"]["spans"][0]["type"] == "tool"
+
+
+def test_ingest_surfaces_failures_without_fabricating_status():
+    calls = []
+
+    def transport(_url, _headers, body):
+        calls.append(json.loads(body.decode()))
+        return 503, "nope"
+
+    lemma = Lemma(api_key="key", project_id=PROJECT_ID, transport=transport)
+
+    context = TraceContext(id="trace-1", name="t")
+    context.record_tool(name="lookup")
+
+    with pytest.raises(RuntimeError, match="failed to ingest trace"):
+        lemma.ingest(context, started_at=_now_utc())
+
+    assert calls[0]["trace"]["status"] is None
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def test_debug_mode_logs_sanitized_span_summaries(capsys):
