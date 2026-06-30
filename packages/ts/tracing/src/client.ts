@@ -846,6 +846,32 @@ export class Lemma {
     })();
   }
 
+  /**
+   * Deliver a trace you assembled yourself, in a single request.
+   *
+   * This is the manual counterpart to {@link Lemma.trace}: instead of the client
+   * owning the lifecycle, you build a {@link TraceContext} — recording spans,
+   * output, and status on it — and hand it back to be sent. Use it for producers
+   * that live outside a single process (cross-process buffers, queues, batch
+   * backfills) where a long-lived handle can't be held.
+   *
+   * Spans merge into the trace by id when `replace` is false (the default), so a
+   * trace can be sent incrementally across several calls; pass `replace: true`
+   * to overwrite it wholesale. Throws on a non-2xx response and never mutates the
+   * trace's status, so a failed send can be retried as-is.
+   */
+  async ingest(
+    context: TraceContext,
+    options: { startedAt: Date; endedAt?: Date; replace?: boolean },
+  ): Promise<void> {
+    await this.flushTrace(
+      context,
+      options.startedAt,
+      options.endedAt ?? new Date(),
+      options.replace ?? false,
+    );
+  }
+
   recordSpan(options: DetachedSpanOptions): SpanHandle | NoopSpanHandle {
     const context = this.detachedTraceFor(options.traceId, "span");
     if (!context) return new NoopSpanHandle();
