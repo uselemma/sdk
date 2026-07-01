@@ -131,6 +131,30 @@ await trace.end({ output: "final answer" });
 
 For live trace handles, `trace.end({ output })` is usually enough. Pass `durationMs` to `trace.end()` only when you need to override the measured trace duration.
 
+## Sending a Trace You Built Yourself
+
+`trace()` and handles assume the client owns the trace lifecycle within a single process. When the producer lives elsewhere — a cross-process buffer, a queue worker, a batch backfill — build a `TraceContext` yourself and deliver it with `ingest()`:
+
+```typescript
+import { Lemma, TraceContext } from "@uselemma/tracing";
+
+const lemma = new Lemma();
+
+const context = new TraceContext({
+  id: turnId, // stable id ties batches to one trace
+  name: prompt,
+  input: prompt,
+  threadId: conversationId,
+});
+context.recordTool({ name: "search_docs", input, output, durationMs });
+context.recordGeneration({ name: "answer", model: "gpt-4o", output });
+context.output(finalAnswer);
+
+await lemma.ingest(context, { startedAt });
+```
+
+`ingest()` is a single POST. Spans merge into the trace by id when `replace` is false (the default), so you can send a trace incrementally across several calls under one stable id and let the server reconcile them; pass `replace: true` to overwrite the trace wholesale. It throws on a non-2xx response and never mutates the trace's status, so a failed send can be retried as-is without fabricating an error.
+
 ## Vercel AI SDK
 
 Pass `vercelAI()` to the AI SDK telemetry integrations option. The integration creates and closes the Lemma trace for the AI SDK run, extracts the prompt/messages as trace input, and records model calls and tool executions as child spans. AI SDK v7 uses `telemetry`; AI SDK v6 uses `experimental_telemetry`.

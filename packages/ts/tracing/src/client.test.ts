@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Lemma } from "./client";
+import { Lemma, TraceContext } from "./client";
 import { disableDebugMode, enableDebugMode } from "./debug-mode";
 
 function jsonBody(call: unknown[]) {
@@ -399,6 +399,111 @@ describe("Lemma", () => {
     await expect(
       lemma.trace("support-agent", async () => "ok"),
     ).rejects.toThrow("failed to ingest trace (503): nope");
+  });
+
+  it("ingest sends a self-built trace once, merging by default", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      baseUrl: "https://api.example.test/",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const startedAt = new Date("2026-01-01T00:00:00.000Z");
+    const context = new TraceContext({
+      id: "trace-1",
+      name: "cursor-agent-turn",
+      input: "do the thing",
+      threadId: "conv-1",
+    });
+    context.recordTool({ name: "search_docs", durationMs: 25 });
+    context.output("done");
+
+    await lemma.ingest(context, { startedAt });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.test/traces/ingest",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer key" }),
+      }),
+    );
+    const body = jsonBody(fetchMock.mock.calls[0]);
+    expect(body.replace).toBe(false);
+    expect(body.project_id).toBe("10000000-0000-0000-0000-000000000001");
+    expect(body.trace).toMatchObject({
+      id: "trace-1",
+      name: "cursor-agent-turn",
+      input: "do the thing",
+      thread_id: "conv-1",
+      output: "done",
+      started_at: "2026-01-01T00:00:00.000Z",
+    });
+    expect(body.trace.spans).toMatchObject([{ name: "search_docs", type: "tool" }]);
+  });
+
+  it("ingest replaces the trace when asked", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const context = new TraceContext({ id: "trace-1", name: "t" });
+    await lemma.ingest(context, { startedAt: new Date(), replace: true });
+
+    expect(jsonBody(fetchMock.mock.calls[0]).replace).toBe(true);
+  });
+
+  it("ingest merges incrementally across calls under one stable id", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 201 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const startedAt = new Date("2026-01-01T00:00:00.000Z");
+
+    // Two independently-built contexts standing in for two processes/batches.
+    const first = new TraceContext({ id: "trace-1", name: "turn" });
+    first.recordGeneration({ name: "draft", model: "gpt-4o" });
+    await lemma.ingest(first, { startedAt });
+
+    const second = new TraceContext({ id: "trace-1", name: "turn" });
+    second.recordTool({ name: "lookup" });
+    await lemma.ingest(second, { startedAt });
+
+    const a = jsonBody(fetchMock.mock.calls[0]);
+    const b = jsonBody(fetchMock.mock.calls[1]);
+    expect(a.replace).toBe(false);
+    expect(b.replace).toBe(false);
+    expect(a.trace.id).toBe("trace-1");
+    expect(b.trace.id).toBe("trace-1");
+    expect(a.trace.started_at).toBe(b.trace.started_at);
+    expect(a.trace.spans).toMatchObject([{ name: "draft", type: "generation" }]);
+    expect(b.trace.spans).toMatchObject([{ name: "lookup", type: "tool" }]);
+  });
+
+  it("ingest throws on a non-2xx response so the caller can retry", async () => {
+    const fetchMock = vi.fn(async () => new Response("nope", { status: 503 }));
+    const lemma = new Lemma({
+      apiKey: "key",
+      projectId: "10000000-0000-0000-0000-000000000001",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const context = new TraceContext({ id: "trace-1", name: "t" });
+    context.recordTool({ name: "lookup" });
+
+    await expect(
+      lemma.ingest(context, { startedAt: new Date() }),
+    ).rejects.toThrow("failed to ingest trace (503): nope");
+    // A transport failure must not fabricate an error status on the trace.
+    expect(jsonBody(fetchMock.mock.calls[0]).trace.status).toBeUndefined();
   });
 
   it("debug mode logs sanitized span summaries as spans arrive", async () => {

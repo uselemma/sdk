@@ -286,6 +286,7 @@ class SpanHandle:
 @dataclass
 class TraceContext:
     name: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
     input: Any = None
     metadata: dict[str, Any] | None = None
     thread_id: str | None = None
@@ -700,11 +701,16 @@ class TraceContext:
         return handle
 
     def payload(
-        self, project_id: str, started_at: datetime, ended_at: datetime
+        self,
+        project_id: str,
+        started_at: datetime,
+        ended_at: datetime,
+        replace: bool = False,
     ) -> dict[str, Any]:
         return {
             "project_id": project_id,
             "trace": {
+                "id": self.id,
                 "name": self.name,
                 "input": self.input,
                 "output": self.output_value,
@@ -721,6 +727,7 @@ class TraceContext:
                 "error": self.error,
                 "spans": self.spans,
             },
+            "replace": replace,
         }
 
 
@@ -816,17 +823,47 @@ class Lemma:
             self._send(ctx, started_at, _now())
             raise
 
-    def _send(
-        self, ctx: TraceContext, started_at: datetime, ended_at: datetime
+    def ingest(
+        self,
+        context: TraceContext,
+        *,
+        started_at: datetime,
+        ended_at: datetime | None = None,
+        replace: bool = False,
     ) -> None:
-        payload = ctx.payload(self.project_id or "", started_at, ended_at)
+        """Deliver a trace you assembled yourself, in a single request.
+
+        This is the manual counterpart to ``trace``: instead of the client
+        owning the lifecycle, you build a ``TraceContext``, record spans,
+        output, and status on it, then hand it back to be sent. Use it for
+        producers that live outside a single process (cross-process buffers,
+        queues, batch backfills) where a long-lived handle can't be held.
+
+        Spans merge into the trace by id when ``replace`` is ``False`` (the
+        default), so a trace can be sent incrementally across several calls
+        under one stable id; pass ``replace=True`` to overwrite it wholesale.
+        Raises on a non-2xx response and never mutates the trace's status, so a
+        failed send can be retried as-is.
+        """
+        self._send(context, started_at, ended_at or _now(), replace)
+
+    def _send(
+        self,
+        ctx: TraceContext,
+        started_at: datetime,
+        ended_at: datetime,
+        replace: bool = False,
+    ) -> None:
+        payload = ctx.payload(self.project_id or "", started_at, ended_at, replace)
         body = json.dumps(payload, default=str).encode()
         url = f"{self.base_url}/traces/ingest"
         _lemma_debug(
             "client",
             "sending trace",
+            trace_id=payload["trace"]["id"],
             name=payload["trace"]["name"],
             span_count=len(payload["trace"]["spans"]),
+            replace=replace,
             url=url,
         )
         status, text = self.transport(
